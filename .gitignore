@@ -12,3 +12,6 @@ build/
 venv/
 .coverage
 htmlcov/
+
+# pixi
+.pixi/
