@@ -79,20 +79,27 @@ line-length = 88
 select = ["E", "F", "I", "W"]
 
 # ---------------------------------------------------------------------------
-# Pixi — dev environment
-# Run:  pixi install
-#       pixi run test
-#       pixi run lint
-#       pixi run bench
+# Pixi
+#
+# Two environments:
+#   default   — dev: pytest, ruff, coverage  (no Jupyter)
+#   notebooks — dev + JupyterLab + ipykernel (for VS Code & browser notebooks)
+#
+# Quickstart:
+#   pixi run test                            # unit tests
+#   pixi run -e notebooks kernel-install     # register Jupyter kernel
+#   pixi run -e notebooks lab                # open JupyterLab in browser
 # ---------------------------------------------------------------------------
 [tool.pixi.workspace]
 name = "seisfetch"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
+# ── default environment (dev / CI) ──────────────────────────────────────────
 [tool.pixi.dependencies]
 python = ">=3.9,<3.13"
 pip = "*"
+ruff = "*"
 
 [tool.pixi.pypi-dependencies]
 seisfetch = { path = ".", editable = true, extras = ["dev"] }
@@ -104,3 +111,22 @@ test-int  = "pytest -m integration"
 lint      = "ruff check seisfetch tests"
 fmt       = "ruff format seisfetch tests"
 bench     = "python -m benchmarks.bench_throughput"
+
+# ── notebooks environment ────────────────────────────────────────────────────
+[tool.pixi.environments]
+notebooks = { features = ["notebooks"], solve-group = "default" }
+
+[tool.pixi.feature.notebooks.dependencies]
+python = ">=3.9,<3.13"
+pip = "*"
+jupyterlab = ">=4.0"
+ipykernel = ">=6"
+
+[tool.pixi.feature.notebooks.pypi-dependencies]
+seisfetch = { path = ".", editable = true, extras = ["obspy", "xarray", "zarr"] }
+
+[tool.pixi.feature.notebooks.tasks]
+# Register the kernel so it shows in VS Code and JupyterLab
+kernel-install = "python -m ipykernel install --user --name seisfetch --display-name 'Python (seisfetch)'"
+# Launch JupyterLab in the browser
+lab = "jupyter lab notebooks/"
