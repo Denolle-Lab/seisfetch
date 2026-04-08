@@ -12,34 +12,40 @@ Tutorial notebooks for `seisfetch`.
 
 ## Setup
 
-### Create and activate the conda environment
+The recommended way to run notebooks is via **pixi**, which manages a dedicated `notebooks` environment with JupyterLab, ipykernel, and all optional dependencies.
+
+### 1. Install pixi (if not already)
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+### 2. Install the notebooks environment
 
 From the root of the repository:
 
 ```bash
-conda env create -f environment.yml
-conda activate seisfetch
+pixi install -e notebooks
 ```
 
-This installs Python, Jupyter, ipykernel, and all notebook dependencies in one step.
+### 3. Register the kernel
 
-### Register the kernel with Jupyter / VS Code
+This makes `Python (seisfetch)` visible in both VS Code and JupyterLab:
 
 ```bash
-conda activate seisfetch
-python -m ipykernel install --user --name seisfetch --display-name "Python (seisfetch)"
+pixi run -e notebooks kernel-install
 ```
 
-After this, the **"Python (seisfetch)"** kernel will appear in VS Code's kernel picker and in JupyterLab.
+Then in VS Code: open a `.ipynb` file → click the kernel picker (top-right) → select **Python (seisfetch)**.
 
-### Launch
+### 4. Open in VS Code or browser
 
 ```bash
-conda activate seisfetch
-jupyter lab
-```
+# VS Code: just open the .ipynb file and select the kernel above
 
-Or open the `.ipynb` files directly in VS Code and select the **seisfetch** kernel from the top-right kernel picker.
+# Browser-based JupyterLab:
+pixi run -e notebooks lab
+```
 
 ## Notes
 

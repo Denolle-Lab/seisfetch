@@ -37,36 +37,87 @@ EarthScope stores one object per station-day (all channels).  SCEDC and NCEDC st
 
 ## Installation
 
-### Recommended: conda environment
+There are two use cases:
+
+| Use case | Tool | What you get |
+|----------|------|--------------|
+| **Data fetching** (scripts, pipelines) | `pip` | lightweight — numpy + boto3 + pymseed only |
+| **Development + notebooks** (VS Code, JupyterLab) | `pixi` | full dev env with Jupyter, tests, linting |
+
+---
+
+### Case 1 — pip: data fetching only
 
 ```bash
-conda env create -f environment.yml
-conda activate seisfetch
-python -m ipykernel install --user --name seisfetch --display-name "Python (seisfetch)"
+pip install seisfetch
 ```
 
-This creates a `seisfetch` conda environment with Python, Jupyter, ipykernel, and all notebook dependencies. The kernel will appear automatically in VS Code and JupyterLab.
-
-### pip (into an existing environment)
+Optional extras:
 
 ```bash
-# Core (numpy + boto3 + pymseed)
-pip install -e .
+pip install "seisfetch[fdsn]"          # FDSN web services (httpx)
+pip install "seisfetch[xarray]"        # xarray.Dataset output
+pip install "seisfetch[zarr]"          # zarr store output
+pip install "seisfetch[obspy]"         # ObsPy Stream / Inventory interop
+pip install "seisfetch[xarray,zarr,obspy]"   # all output formats
+```
 
-# With FDSN connection pooling
-pip install -e ".[fdsn]"
+From source:
 
-# With xarray + zarr output
-pip install -e ".[xarray,zarr]"
+```bash
+git clone https://github.com/Denolle-Lab/seisfetch
+cd seisfetch
+pip install .                          # core
+pip install ".[xarray,zarr,obspy]"    # with output formats
+```
 
-# With ObsPy interop (Stream output, station metadata)
-pip install -e ".[obspy]"
+---
 
-# Everything
-pip install -e ".[obspy,fdsn,xarray,zarr]"
+### Case 2 — pixi: development + notebooks
 
-# Development (tests, mocks, all optional deps)
-pip install -e ".[dev]"
+[pixi](https://pixi.sh) manages two isolated environments inside the repo:
+
+| Environment | Purpose |
+|-------------|---------|
+| `default` | unit tests, linting, benchmarks (no Jupyter) |
+| `notebooks` | JupyterLab + ipykernel + all optional deps |
+
+**Install pixi** (if not already):
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+**Set up both environments:**
+
+```bash
+git clone https://github.com/Denolle-Lab/seisfetch
+cd seisfetch
+pixi install                           # default dev env
+pixi install -e notebooks              # notebook env
+```
+
+**Register the Jupyter kernel** (needed once for VS Code and JupyterLab to see it):
+
+```bash
+pixi run -e notebooks kernel-install
+```
+
+The kernel `Python (seisfetch)` will now appear in VS Code's kernel picker and in JupyterLab.
+
+**Run JupyterLab in the browser:**
+
+```bash
+pixi run -e notebooks lab
+```
+
+**Common dev tasks (default env):**
+
+```bash
+pixi run test          # unit tests (123 tests, no network needed)
+pixi run test-cov      # with coverage
+pixi run lint          # ruff
+pixi run bench         # benchmarks
 ```
 
 ## Quick start
@@ -358,14 +409,14 @@ See the [notebooks/](notebooks/) directory for hands-on tutorials:
 | [02_bulk_mining.ipynb](notebooks/02_bulk_mining.ipynb) | Quakescope-style parallel bulk fetch across EarthScope + SCEDC + NCEDC |
 | [03_xarray_zarr_pipeline.ipynb](notebooks/03_xarray_zarr_pipeline.ipynb) | Multi-station xarray Dataset → zarr store → earth2studio GPU pipeline |
 
-See [notebooks/README.md](notebooks/README.md) for setup instructions (conda environment recommended).
+See [notebooks/README.md](notebooks/README.md) for setup instructions (pixi recommended).
 
 ## Tests
 
 ```bash
-pytest                     # 81 unit tests (mocked, no network)
-pytest -m integration      # real endpoint tests
-pytest --cov=seisfetch --cov-report=term-missing
+pixi run test              # 123 unit tests, no network needed
+pixi run test-cov          # with coverage report
+pixi run test-int          # integration tests (hits real S3 endpoints)
 ```
 
 ## Benchmarks
