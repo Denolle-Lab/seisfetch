@@ -15,3 +15,8 @@ htmlcov/
 
 # pixi
 .pixi/
+
+# VS Code — track settings.json but ignore personal/launch configs
+.vscode/launch.json
+.vscode/extensions.json
+.vscode/*.code-snippets
