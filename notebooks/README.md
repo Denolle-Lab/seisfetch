@@ -12,39 +12,32 @@ Tutorial notebooks for `seisfetch`.
 
 ## Setup
 
-The recommended way to run notebooks is via **pixi**, which manages a dedicated `notebooks` environment with JupyterLab, ipykernel, and all optional dependencies.
+### Option A — VS Code (recommended for VS Code users)
 
-### 1. Install pixi (if not already)
+VS Code auto-detects a `.venv/` folder at the repo root and offers it as a Python interpreter. Just create it and install:
 
 ```bash
+cd seisfetch
+python3 -m venv .venv
+.venv/bin/pip install -e ".[obspy,xarray,zarr]"
+.venv/bin/pip install ipykernel
+.venv/bin/python -m ipykernel install --user --name seisfetch --display-name "Python (seisfetch)"
+```
+
+Then in VS Code: open any `.ipynb` → click the kernel picker (top-right) → select **Python (seisfetch)** or **.venv**.
+
+### Option B — JupyterLab in the browser (pixi)
+
+[pixi](https://pixi.sh) manages a dedicated `notebooks` environment with JupyterLab and all dependencies.
+
+```bash
+# Install pixi if needed:
 curl -fsSL https://pixi.sh/install.sh | bash
-```
 
-### 2. Install the notebooks environment
-
-From the root of the repository:
-
-```bash
+# From the repo root:
 pixi install -e notebooks
-```
-
-### 3. Register the kernel
-
-This makes `Python (seisfetch)` visible in both VS Code and JupyterLab:
-
-```bash
-pixi run -e notebooks kernel-install
-```
-
-Then in VS Code: open a `.ipynb` file → click the kernel picker (top-right) → select **Python (seisfetch)**.
-
-### 4. Open in VS Code or browser
-
-```bash
-# VS Code: just open the .ipynb file and select the kernel above
-
-# Browser-based JupyterLab:
-pixi run -e notebooks lab
+pixi run -e notebooks kernel-install   # register the kernel (also makes it visible in VS Code)
+pixi run -e notebooks lab              # open JupyterLab in the browser
 ```
 
 ## Notes
