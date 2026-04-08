@@ -31,6 +31,13 @@ fdsn = ["httpx>=0.25"]
 xarray = ["xarray>=2023.1"]
 zarr = ["xarray>=2023.1", "zarr>=2.14"]
 auth = ["earthscope-sdk>=1.0"]
+notebooks = [
+    "jupyter>=1.0",
+    "ipykernel>=6",
+    "xarray>=2023.1",
+    "zarr>=2.14",
+    "obspy>=1.4",
+]
 dev = [
     "pytest>=7",
     "pytest-cov",
@@ -40,13 +47,15 @@ dev = [
     "obspy>=1.4",
     "xarray>=2023.1",
     "zarr>=2.14",
+    "jupyter>=1.0",
+    "ipykernel>=6",
 ]
 bench = [
     "httpx>=0.25",
     "tabulate",
 ]
 all = [
-    "seisfetch[obspy,fdsn,xarray,zarr,auth,dev,bench]",
+    "seisfetch[obspy,fdsn,xarray,zarr,auth,notebooks,dev,bench]",
 ]
 
 [project.scripts]
