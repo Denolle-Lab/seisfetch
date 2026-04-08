@@ -1,0 +1,44 @@
+"""
+seisfetch: Fast seismic miniSEED from EarthScope, SCEDC, NCEDC,
+and 37+ FDSN servers.
+
+Core deps: numpy + boto3 + pymseed.  No ObsPy required.
+
+S3 archives (anonymous, open data):
+  EarthScope  s3://earthscope-geophysical-data  (us-east-2)
+  SCEDC       s3://scedc-pds                    (us-west-2)
+  NCEDC       s3://ncedc-pds                    (us-east-2)
+
+Optional outputs:
+  obspy   → get_waveforms(), bundle_to_obspy(), get_availability()
+  xarray  → get_xarray(), bundle_to_xarray()
+  zarr    → to_zarr()
+
+See THIRD_PARTY_NOTICES.md for full attribution and licenses.
+"""
+from seisfetch.bulk import (
+    BulkRequest, BulkResult, BulkSummary,
+    fetch_bulk_raw, fetch_bulk_numpy,
+    requests_from_list, requests_from_csv,
+)
+from seisfetch.client import SeisfetchClient
+from seisfetch.convert import (
+    TraceArray, TraceBundle, bundle_to_obspy, bundle_to_inventory,
+    bundle_to_xarray, parse_mseed, to_zarr,
+)
+from seisfetch.fdsn import (
+    FDSNClient, FDSNMultiClient, list_providers, resolve_provider,
+)
+from seisfetch.s3 import S3AuthClient, S3OpenClient, route_network
+
+__version__ = "0.2.0"
+__all__ = [
+    "SeisfetchClient", "S3OpenClient", "S3AuthClient",
+    "FDSNClient", "FDSNMultiClient", "list_providers", "resolve_provider",
+    "parse_mseed", "TraceArray", "TraceBundle",
+    "bundle_to_obspy", "bundle_to_inventory", "bundle_to_xarray", "to_zarr",
+    "route_network",
+    "BulkRequest", "BulkResult", "BulkSummary",
+    "fetch_bulk_raw", "fetch_bulk_numpy",
+    "requests_from_list", "requests_from_csv",
+]

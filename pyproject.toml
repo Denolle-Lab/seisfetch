@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seisfetch"
+version = "0.2.0"
+description = "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, and 37+ FDSN servers. Core: numpy + boto3 + pymseed. No ObsPy required."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "UW ESS Denolle Group" },
+]
+keywords = ["seismology", "earthscope", "scedc", "ncedc", "miniseed", "fdsn", "s3", "numpy", "xarray", "zarr"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.24",
+    "boto3>=1.28",
+    "pymseed>=0.2",
+]
+
+[project.optional-dependencies]
+obspy = ["obspy>=1.4"]
+fdsn = ["httpx>=0.25"]
+xarray = ["xarray>=2023.1"]
+zarr = ["xarray>=2023.1", "zarr>=2.14"]
+auth = ["earthscope-sdk>=1.0"]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+    "moto[s3]>=5",
+    "httpx>=0.25",
+    "respx>=0.21",
+    "obspy>=1.4",
+    "xarray>=2023.1",
+    "zarr>=2.14",
+]
+bench = [
+    "httpx>=0.25",
+    "tabulate",
+]
+all = [
+    "seisfetch[obspy,fdsn,xarray,zarr,auth,dev,bench]",
+]
+
+[project.scripts]
+seisfetch = "seisfetch.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["seisfetch*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that hit real EarthScope endpoints (deselect with -m 'not integration')",
+]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
