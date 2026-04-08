@@ -1,0 +1,12 @@
+name: seisfetch
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9
+  - pip
+  - jupyter
+  - ipykernel
+  - numpy>=1.24
+  - pip:
+      - -e ".[obspy,xarray,zarr]"

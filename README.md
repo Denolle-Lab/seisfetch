@@ -37,6 +37,18 @@ EarthScope stores one object per station-day (all channels).  SCEDC and NCEDC st
 
 ## Installation
 
+### Recommended: conda environment
+
+```bash
+conda env create -f environment.yml
+conda activate seisfetch
+python -m ipykernel install --user --name seisfetch --display-name "Python (seisfetch)"
+```
+
+This creates a `seisfetch` conda environment with Python, Jupyter, ipykernel, and all notebook dependencies. The kernel will appear automatically in VS Code and JupyterLab.
+
+### pip (into an existing environment)
+
 ```bash
 # Core (numpy + boto3 + pymseed)
 pip install -e .
@@ -342,17 +354,11 @@ See the [notebooks/](notebooks/) directory for hands-on tutorials:
 
 | Notebook | Description |
 |----------|-------------|
-| [01_quickstart.py](notebooks/01_quickstart.py) | S3 fetch → numpy, FDSN providers, xarray output, ObsPy interop |
-| [02_bulk_mining.py](notebooks/02_bulk_mining.py) | Quakescope-style parallel bulk fetch across EarthScope + SCEDC + NCEDC |
-| [03_xarray_zarr_pipeline.py](notebooks/03_xarray_zarr_pipeline.py) | Multi-station xarray Dataset → zarr store → earth2studio GPU pipeline |
+| [01_quickstart.ipynb](notebooks/01_quickstart.ipynb) | S3 fetch → numpy, FDSN providers, xarray output, ObsPy interop |
+| [02_bulk_mining.ipynb](notebooks/02_bulk_mining.ipynb) | Quakescope-style parallel bulk fetch across EarthScope + SCEDC + NCEDC |
+| [03_xarray_zarr_pipeline.ipynb](notebooks/03_xarray_zarr_pipeline.ipynb) | Multi-station xarray Dataset → zarr store → earth2studio GPU pipeline |
 
-Run in VS Code (cells delimited by `# %%`), JupyterLab (with `jupytext`), or convert:
-
-```bash
-pip install jupytext
-jupytext --to notebook notebooks/01_quickstart.py
-jupyter lab
-```
+See [notebooks/README.md](notebooks/README.md) for setup instructions (conda environment recommended).
 
 ## Tests
 

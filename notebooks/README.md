@@ -12,37 +12,34 @@ Tutorial notebooks for `seisfetch`.
 
 ## Setup
 
-### 1. Install Jupyter
+### Create and activate the conda environment
+
+From the root of the repository:
 
 ```bash
-pip install jupyter ipykernel
+conda env create -f environment.yml
+conda activate seisfetch
 ```
 
-### 2. Register the kernel (if using a virtual environment)
+This installs Python, Jupyter, ipykernel, and all notebook dependencies in one step.
+
+### Register the kernel with Jupyter / VS Code
 
 ```bash
+conda activate seisfetch
 python -m ipykernel install --user --name seisfetch --display-name "Python (seisfetch)"
 ```
 
-### 3. Install seisfetch with notebook dependencies
+After this, the **"Python (seisfetch)"** kernel will appear in VS Code's kernel picker and in JupyterLab.
+
+### Launch
 
 ```bash
-# All dependencies needed to run every notebook
-pip install -e ".[obspy,xarray,zarr]"
-
-# Core only (notebook 01 without ObsPy section)
-pip install -e "."
+conda activate seisfetch
+jupyter lab
 ```
 
-### 4. Launch
-
-```bash
-jupyter notebook   # classic interface
-# or
-jupyter lab        # JupyterLab interface
-```
-
-Or open the `.ipynb` files directly in VS Code (select the `seisfetch` kernel).
+Or open the `.ipynb` files directly in VS Code and select the **seisfetch** kernel from the top-right kernel picker.
 
 ## Notes
 
