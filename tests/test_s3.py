@@ -1,15 +1,22 @@
 """Tests for seisfetch.s3 — multi-datacenter S3 client."""
-import numpy as np, pytest, boto3
+
+import boto3
+import numpy as np
+import pytest
 from moto import mock_aws
-from seisfetch.utils import OPEN_BUCKET
+
 from seisfetch.s3 import (
-    S3OpenClient, DATACENTERS, route_network,
-    _earthscope_key, _scedc_key, _ncedc_key,
+    S3OpenClient,
+    _earthscope_key,
+    _ncedc_key,
+    _scedc_key,
+    route_network,
 )
+from seisfetch.utils import OPEN_BUCKET
 from tests.helpers import make_mseed
 
-
 # ── Key builder tests ──────────────────────────────────────────────── #
+
 
 class TestKeyBuilders:
     def test_earthscope(self):
@@ -18,7 +25,7 @@ class TestKeyBuilders:
 
     def test_scedc(self):
         k = _scedc_key("CI", "SDD", 2016, 183, location="", channel="HHZ")
-        assert k == "continuous_waveforms/2016/2016_183/CISDDHHZ__2016183.ms"
+        assert k == "continuous_waveforms/2016/2016_183/CISDD__HHZ___2016183.ms"
 
     def test_ncedc(self):
         k = _ncedc_key("BK", "BRK", 2024, 100, location="00", channel="BHZ")
@@ -30,6 +37,7 @@ class TestKeyBuilders:
 
 
 # ── Network routing ────────────────────────────────────────────────── #
+
 
 class TestRouteNetwork:
     def test_ci_to_scedc(self):
@@ -57,12 +65,15 @@ class TestRouteNetwork:
 
 # ── S3OpenClient with EarthScope mock ─────────────────────────────── #
 
+
 @mock_aws
 class TestS3OpenClientEarthScope:
     def _setup(self, network="IU", station="ANMO", year=2024, doy=15):
         s3 = boto3.client("s3", region_name="us-east-2")
-        s3.create_bucket(Bucket=OPEN_BUCKET,
-                         CreateBucketConfiguration={"LocationConstraint": "us-east-2"})
+        s3.create_bucket(
+            Bucket=OPEN_BUCKET,
+            CreateBucketConfiguration={"LocationConstraint": "us-east-2"},
+        )
         key = _earthscope_key(network, station, year, doy)
         s3.put_object(Bucket=OPEN_BUCKET, Key=key, Body=make_mseed(network, station))
 
@@ -72,21 +83,34 @@ class TestS3OpenClientEarthScope:
 
     def test_get_raw(self):
         self._setup()
-        assert len(self._client().get_raw("IU", "ANMO", starttime="2024-01-15",
-                                           endtime="2024-01-15T01:00:00")) > 0
+        assert (
+            len(
+                self._client().get_raw(
+                    "IU", "ANMO", starttime="2024-01-15", endtime="2024-01-15T01:00:00"
+                )
+            )
+            > 0
+        )
 
     def test_get_raw_missing(self):
         boto3.client("s3", region_name="us-east-2").create_bucket(
             Bucket=OPEN_BUCKET,
-            CreateBucketConfiguration={"LocationConstraint": "us-east-2"})
-        assert self._client().get_raw("XX", "NOPE", starttime="2024-01-15",
-                                       endtime="2024-01-15T01:00:00") == b""
+            CreateBucketConfiguration={"LocationConstraint": "us-east-2"},
+        )
+        assert (
+            self._client().get_raw(
+                "XX", "NOPE", starttime="2024-01-15", endtime="2024-01-15T01:00:00"
+            )
+            == b""
+        )
 
     def test_parse_roundtrip(self):
         self._setup()
         from seisfetch.convert import parse_mseed
-        raw = self._client().get_raw("IU", "ANMO", starttime="2024-01-15",
-                                      endtime="2024-01-15T01:00:00")
+
+        raw = self._client().get_raw(
+            "IU", "ANMO", starttime="2024-01-15", endtime="2024-01-15T01:00:00"
+        )
         b = parse_mseed(raw)
         assert len(b) >= 1 and isinstance(b.traces[0].data, np.ndarray)
 
@@ -100,24 +124,38 @@ class TestS3OpenClientEarthScope:
 
     def test_list_stations(self):
         self._setup(network="UW", station="MBW", year=2024, doy=300)
-        assert "MBW" in self._client().list_stations("UW", 2024, 300,
-                                                      datacenter="earthscope")
+        assert "MBW" in self._client().list_stations(
+            "UW", 2024, 300, datacenter="earthscope"
+        )
 
     def test_multi_day(self):
         s3 = boto3.client("s3", region_name="us-east-2")
-        s3.create_bucket(Bucket=OPEN_BUCKET,
-                         CreateBucketConfiguration={"LocationConstraint": "us-east-2"})
+        s3.create_bucket(
+            Bucket=OPEN_BUCKET,
+            CreateBucketConfiguration={"LocationConstraint": "us-east-2"},
+        )
         from seisfetch.utils import s3_key
+
         for doy in (15, 16):
-            s3.put_object(Bucket=OPEN_BUCKET,
-                          Key=s3_key("IU", "ANMO", 2024, doy),
-                          Body=make_mseed())
-        c = self._client(); c._max_workers = 2
-        assert len(c.get_raw("IU", "ANMO", starttime="2024-01-15",
-                              endtime="2024-01-16T12:00:00")) > 0
+            s3.put_object(
+                Bucket=OPEN_BUCKET,
+                Key=s3_key("IU", "ANMO", 2024, doy),
+                Body=make_mseed(),
+            )
+        c = self._client()
+        c._max_workers = 2
+        assert (
+            len(
+                c.get_raw(
+                    "IU", "ANMO", starttime="2024-01-15", endtime="2024-01-16T12:00:00"
+                )
+            )
+            > 0
+        )
 
 
 # ── Channel expansion (SCEDC/NCEDC) ───────────────────────────────── #
+
 
 class TestChannelExpansion:
     def test_explicit(self):

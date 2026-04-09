@@ -78,6 +78,14 @@ line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/diag_issues.py" = ["E402", "E501"]
+"tests/inspect_pm*.py" = ["E402", "E501"]
+"tests/run_compare_readers.py" = ["E501"]
+"tests/show_tohoku*.py" = ["E501"]
+"tests/test_pymseed_vs_obspy.py" = ["F841", "E501"]
+"notebooks/*.ipynb" = ["E501"]
+
 # ---------------------------------------------------------------------------
 # Pixi
 #

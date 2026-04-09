@@ -1,10 +1,16 @@
 """Tests for seisfetch.utils — zero ObsPy dependency."""
 
 from datetime import date, datetime, timezone
+
 import pytest
 
 from seisfetch.utils import (
-    date_range, date_to_year_doy, s3_key, to_datetime, to_epoch, to_isoformat,
+    date_range,
+    date_to_year_doy,
+    s3_key,
+    to_datetime,
+    to_epoch,
+    to_isoformat,
 )
 
 

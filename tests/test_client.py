@@ -1,6 +1,7 @@
 """Tests for seisfetch.client."""
 
 import pytest
+
 from seisfetch.client import SeisfetchClient
 from seisfetch.fdsn import FDSNClient, FDSNMultiClient
 
@@ -33,7 +34,8 @@ class TestConstruction:
 
     def test_s3_auth_requires_sdk(self):
         try:
-            import earthscope_sdk
+            import earthscope_sdk  # noqa: F401
+
             pytest.skip("earthscope-sdk installed")
         except ImportError:
             with pytest.raises(ImportError, match="earthscope-sdk"):

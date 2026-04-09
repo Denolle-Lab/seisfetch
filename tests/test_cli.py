@@ -1,8 +1,8 @@
 """Tests for seisfetch CLI (__main__.py)."""
+
 import csv
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -31,7 +31,6 @@ class TestCLIHelp:
 
 
 class TestCLIInfo:
-
     def test_providers(self, capsys):
         with patch("sys.argv", ["ef", "info", "--providers"]):
             main()
@@ -59,16 +58,25 @@ class TestCLIInfo:
 
 
 class TestCLIDownload:
-
     @patch("seisfetch.client.SeisfetchClient.get_raw")
     def test_download_writes_file(self, mock_get_raw, tmp_path):
         mock_get_raw.return_value = b"\x00" * 1000
         outfile = str(tmp_path / "test.mseed")
-        with patch("sys.argv", [
-            "ef", "download", "IU", "ANMO",
-            "-s", "2024-01-15", "-e", "2024-01-15T01:00:00",
-            "-o", outfile,
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "ef",
+                "download",
+                "IU",
+                "ANMO",
+                "-s",
+                "2024-01-15",
+                "-e",
+                "2024-01-15T01:00:00",
+                "-o",
+                outfile,
+            ],
+        ):
             main()
         assert Path(outfile).exists()
         assert Path(outfile).stat().st_size == 1000
@@ -76,29 +84,56 @@ class TestCLIDownload:
     @patch("seisfetch.client.SeisfetchClient.get_raw")
     def test_download_no_data_exits(self, mock_get_raw):
         mock_get_raw.return_value = b""
-        with patch("sys.argv", [
-            "ef", "download", "XX", "NOPE", "-s", "2024-01-15",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "ef",
+                "download",
+                "XX",
+                "NOPE",
+                "-s",
+                "2024-01-15",
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 1
 
 
 class TestCLINumpySave:
-
     @patch("seisfetch.client.SeisfetchClient.get_numpy")
     def test_numpy_writes_npz(self, mock_get_numpy, tmp_path):
-        from seisfetch.convert import TraceBundle, TraceArray
-        mock_get_numpy.return_value = TraceBundle([
-            TraceArray("IU", "ANMO", "00", "BHZ", 0, 100.0,
-                       np.random.randn(1000).astype(np.float32)),
-        ])
+        from seisfetch.convert import TraceArray, TraceBundle
+
+        mock_get_numpy.return_value = TraceBundle(
+            [
+                TraceArray(
+                    "IU",
+                    "ANMO",
+                    "00",
+                    "BHZ",
+                    0,
+                    100.0,
+                    np.random.randn(1000).astype(np.float32),
+                ),
+            ]
+        )
         outfile = str(tmp_path / "test.npz")
-        with patch("sys.argv", [
-            "ef", "numpy", "IU", "ANMO",
-            "-s", "2024-01-15", "-e", "2024-01-15T01:00:00",
-            "-o", outfile,
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "ef",
+                "numpy",
+                "IU",
+                "ANMO",
+                "-s",
+                "2024-01-15",
+                "-e",
+                "2024-01-15T01:00:00",
+                "-o",
+                outfile,
+            ],
+        ):
             main()
         assert Path(outfile).exists()
         loaded = np.load(outfile)
@@ -107,7 +142,6 @@ class TestCLINumpySave:
 
 
 class TestCLIBulk:
-
     @patch("seisfetch.client.SeisfetchClient.get_raw")
     def test_bulk_mseed(self, mock_get_raw, tmp_path):
         mock_get_raw.return_value = b"\x00" * 500
@@ -117,13 +151,26 @@ class TestCLIBulk:
         with open(req_file, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["# network,station,location,channel,starttime,endtime"])
-            writer.writerow(["IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-15T01:00:00"])
-            writer.writerow(["CI", "SDD", "", "BHZ", "2024-06-01", "2024-06-01T01:00:00"])
+            writer.writerow(
+                ["IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-15T01:00:00"]
+            )
+            writer.writerow(
+                ["CI", "SDD", "", "BHZ", "2024-06-01", "2024-06-01T01:00:00"]
+            )
 
         outdir = str(tmp_path / "out")
-        with patch("sys.argv", [
-            "ef", "bulk", str(req_file), "-o", outdir, "-f", "mseed",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "ef",
+                "bulk",
+                str(req_file),
+                "-o",
+                outdir,
+                "-f",
+                "mseed",
+            ],
+        ):
             main()
 
         outpath = Path(outdir)
@@ -134,16 +181,27 @@ class TestCLIBulk:
     @patch("seisfetch.client.SeisfetchClient.get_raw")
     def test_bulk_npz(self, mock_get_raw, tmp_path):
         from tests.helpers import make_mseed
+
         mock_get_raw.return_value = make_mseed(npts=100)
 
         req_file = tmp_path / "req.csv"
         with open(req_file, "w", newline="") as f:
-            csv.writer(f).writerow(["IU", "ANMO", "00", "BHZ",
-                                    "2024-01-15", "2024-01-15T01:00:00"])
+            csv.writer(f).writerow(
+                ["IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-15T01:00:00"]
+            )
 
         outdir = str(tmp_path / "npz_out")
-        with patch("sys.argv", [
-            "ef", "bulk", str(req_file), "-o", outdir, "-f", "npz",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "ef",
+                "bulk",
+                str(req_file),
+                "-o",
+                outdir,
+                "-f",
+                "npz",
+            ],
+        ):
             main()
         assert len(list(Path(outdir).glob("*.npz"))) == 1

@@ -1,20 +1,23 @@
 """Tests for seisfetch.bulk."""
+
 import csv
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from seisfetch.bulk import (
-    BulkRequest, BulkResult, BulkSummary,
-    requests_from_list, requests_from_csv,
-    fetch_bulk_raw, fetch_bulk_numpy,
+    BulkRequest,
+    BulkResult,
+    BulkSummary,
+    fetch_bulk_numpy,
+    fetch_bulk_raw,
+    requests_from_csv,
+    requests_from_list,
 )
 
-
 # ── BulkRequest ───────────────────────────────────────────────────── #
+
 
 class TestBulkRequest:
     def test_tag(self):
@@ -35,17 +38,20 @@ class TestBulkRequest:
 
 # ── BulkResult / BulkSummary ──────────────────────────────────────── #
 
+
 class TestBulkResult:
     def test_success(self):
-        r = BulkResult(request=BulkRequest("IU", "ANMO"),
-                       raw=b"\x00" * 1000, elapsed_s=0.5)
+        r = BulkResult(
+            request=BulkRequest("IU", "ANMO"), raw=b"\x00" * 1000, elapsed_s=0.5
+        )
         assert r.success
         assert r.nbytes == 1000
         assert r.throughput_mbps == pytest.approx(0.016, rel=0.1)
 
     def test_failure(self):
-        r = BulkResult(request=BulkRequest("XX", "NOPE"),
-                       error="not found", elapsed_s=0.1)
+        r = BulkResult(
+            request=BulkRequest("XX", "NOPE"), error="not found", elapsed_s=0.1
+        )
         assert not r.success
 
     def test_empty_data(self):
@@ -55,11 +61,13 @@ class TestBulkResult:
 
 class TestBulkSummary:
     def test_counts(self):
-        s = BulkSummary(results=[
-            BulkResult(BulkRequest("IU", "A"), raw=b"\x00"*100, elapsed_s=0.1),
-            BulkResult(BulkRequest("XX", "B"), error="fail", elapsed_s=0.1),
-            BulkResult(BulkRequest("CI", "C"), raw=b"\x00"*200, elapsed_s=0.2),
-        ])
+        s = BulkSummary(
+            results=[
+                BulkResult(BulkRequest("IU", "A"), raw=b"\x00" * 100, elapsed_s=0.1),
+                BulkResult(BulkRequest("XX", "B"), error="fail", elapsed_s=0.1),
+                BulkResult(BulkRequest("CI", "C"), raw=b"\x00" * 200, elapsed_s=0.2),
+            ]
+        )
         assert s.total == 3
         assert s.succeeded == 2
         assert s.failed == 1
@@ -68,43 +76,59 @@ class TestBulkSummary:
         assert len(s.failed_results) == 1
 
     def test_repr(self):
-        s = BulkSummary(results=[
-            BulkResult(BulkRequest("IU", "A"), raw=b"\x00"*1000, elapsed_s=0.1),
-        ])
+        s = BulkSummary(
+            results=[
+                BulkResult(BulkRequest("IU", "A"), raw=b"\x00" * 1000, elapsed_s=0.1),
+            ]
+        )
         assert "1/1" in repr(s)
 
 
 # ── Request builders ──────────────────────────────────────────────── #
 
+
 class TestRequestsFromList:
     def test_from_bulk_requests(self):
-        reqs = requests_from_list([
-            BulkRequest("IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-16"),
-        ])
+        reqs = requests_from_list(
+            [
+                BulkRequest("IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-16"),
+            ]
+        )
         assert len(reqs) == 1
         assert reqs[0].network == "IU"
 
     def test_from_dicts(self):
-        reqs = requests_from_list([
-            {"network": "CI", "station": "SDD", "channel": "BHZ",
-             "starttime": "2024-06-01", "endtime": "2024-06-02"},
-        ])
+        reqs = requests_from_list(
+            [
+                {
+                    "network": "CI",
+                    "station": "SDD",
+                    "channel": "BHZ",
+                    "starttime": "2024-06-01",
+                    "endtime": "2024-06-02",
+                },
+            ]
+        )
         assert reqs[0].station == "SDD"
 
     def test_from_tuples(self):
-        reqs = requests_from_list([
-            ("IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-16"),
-            ("CI", "SDD", "", "BHZ", "2024-06-01", "2024-06-02"),
-        ])
+        reqs = requests_from_list(
+            [
+                ("IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-16"),
+                ("CI", "SDD", "", "BHZ", "2024-06-01", "2024-06-02"),
+            ]
+        )
         assert len(reqs) == 2
         assert reqs[1].network == "CI"
 
     def test_mixed(self):
-        reqs = requests_from_list([
-            BulkRequest("IU", "ANMO"),
-            {"network": "CI", "station": "SDD"},
-            ("BK", "BRK", "00", "BHZ", "2024-01-01", "2024-01-02"),
-        ])
+        reqs = requests_from_list(
+            [
+                BulkRequest("IU", "ANMO"),
+                {"network": "CI", "station": "SDD"},
+                ("BK", "BRK", "00", "BHZ", "2024-01-01", "2024-01-02"),
+            ]
+        )
         assert len(reqs) == 3
 
     def test_bad_type_raises(self):
@@ -135,6 +159,7 @@ class TestRequestsFromCSV:
 
 # ── fetch_bulk_raw ────────────────────────────────────────────────── #
 
+
 class TestFetchBulkRaw:
     def test_parallel_fetch(self):
         mock_client = MagicMock()
@@ -152,7 +177,11 @@ class TestFetchBulkRaw:
 
     def test_handles_failures(self):
         mock_client = MagicMock()
-        mock_client.get_raw.side_effect = [b"\x00"*100, Exception("boom"), b"\x00"*200]
+        mock_client.get_raw.side_effect = [
+            b"\x00" * 100,
+            Exception("boom"),
+            b"\x00" * 200,
+        ]
 
         reqs = [BulkRequest("A", "1"), BulkRequest("B", "2"), BulkRequest("C", "3")]
         summary = fetch_bulk_raw(reqs, mock_client, max_workers=1, progress=None)
@@ -165,7 +194,9 @@ class TestFetchBulkRaw:
 
         summary = fetch_bulk_raw(
             [BulkRequest("X", "Y", starttime="2024-01-01", endtime="2024-01-02")],
-            mock_client, progress=None)
+            mock_client,
+            progress=None,
+        )
         assert summary.succeeded == 0
         assert summary.failed == 1
 
@@ -174,6 +205,7 @@ class TestFetchBulkRaw:
         mock_client.get_raw.return_value = b"\x00" * 100
 
         calls = []
+
         def _progress(i, total, result):
             calls.append((i, total, result.success))
 
@@ -186,6 +218,7 @@ class TestFetchBulkRaw:
 class TestFetchBulkNumpy:
     def test_parse_results(self):
         from tests.helpers import make_mseed
+
         mseed = make_mseed(npts=100)
 
         mock_client = MagicMock()

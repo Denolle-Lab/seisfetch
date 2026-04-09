@@ -17,21 +17,22 @@ Usage:
     python -m benchmarks.bench_throughput
     python -m benchmarks.bench_throughput --suite all
     python -m benchmarks.bench_throughput --suite parse
-    python -m benchmarks.bench_throughput --suite download --network CI --station SDD --channel BHZ
+    python -m benchmarks.bench_throughput --suite download \
+        --network CI --station SDD --channel BHZ
     python -m benchmarks.bench_throughput --suite bulk
 """
+
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 
 import numpy as np
 
-
 # =========================================================================== #
 #  Utilities
 # =========================================================================== #
+
 
 def _hline(char="=", width=64):
     print(char * width)
@@ -66,26 +67,30 @@ def _trial_rows(trials: list[dict]):
 #  1. Raw S3 download throughput
 # =========================================================================== #
 
-def bench_s3_download(network, station, start, end, channel="*",
-                      datacenter=None, n_trials=3):
+
+def bench_s3_download(
+    network, station, start, end, channel="*", datacenter=None, n_trials=3
+):
     """Download raw bytes, measure throughput."""
     from seisfetch.client import SeisfetchClient
 
-    client = SeisfetchClient(backend="s3_open", datacenter=datacenter,
-                                   max_workers=8)
+    client = SeisfetchClient(backend="s3_open", datacenter=datacenter, max_workers=8)
     trials = []
     for i in range(n_trials):
         t0 = time.perf_counter()
-        raw = client.get_raw(network, station, starttime=start, endtime=end,
-                             channel=channel)
+        raw = client.get_raw(
+            network, station, starttime=start, endtime=end, channel=channel
+        )
         elapsed = time.perf_counter() - t0
         nbytes = len(raw)
-        trials.append({
-            "trial": i + 1,
-            "bytes": nbytes,
-            "elapsed_s": elapsed,
-            "throughput_mbps": (nbytes * 8 / 1e6) / max(elapsed, 1e-9),
-        })
+        trials.append(
+            {
+                "trial": i + 1,
+                "bytes": nbytes,
+                "elapsed_s": elapsed,
+                "throughput_mbps": (nbytes * 8 / 1e6) / max(elapsed, 1e-9),
+            }
+        )
 
     _header(f"S3 Download: {network}.{station} ({datacenter or 'auto'})")
     _row("Object size", trials[0]["bytes"], "bytes")
@@ -99,6 +104,7 @@ def bench_s3_download(network, station, start, end, channel="*",
 #  2. Parse benchmark: pymseed vs ObsPy
 # =========================================================================== #
 
+
 def bench_parse(raw_bytes: bytes, n_trials=5):
     """Compare pymseed and ObsPy parse speed on the same data."""
     import io
@@ -107,6 +113,7 @@ def bench_parse(raw_bytes: bytes, n_trials=5):
 
     # -- pymseed (primary) --
     from seisfetch.convert import parse_mseed
+
     times_py = []
     for _ in range(n_trials):
         t0 = time.perf_counter()
@@ -126,10 +133,11 @@ def bench_parse(raw_bytes: bytes, n_trials=5):
     # -- ObsPy (optional comparison) --
     try:
         from obspy import read as obspy_read
+
         times_ob = []
         for _ in range(n_trials):
             t0 = time.perf_counter()
-            st = obspy_read(io.BytesIO(raw_bytes), format="MSEED")
+            obspy_read(io.BytesIO(raw_bytes), format="MSEED")
             times_ob.append(time.perf_counter() - t0)
         ob_mean = np.mean(times_ob)
         ob_mbps = (len(raw_bytes) * 8 / 1e6) / max(ob_mean, 1e-9)
@@ -139,35 +147,47 @@ def bench_parse(raw_bytes: bytes, n_trials=5):
     except ImportError:
         print("  (ObsPy not installed — skipping comparison)")
 
-    return {"pymseed_ms": py_mean * 1000, "pymseed_mbps": py_mbps,
-            "traces": n_traces, "samples": total_samples}
+    return {
+        "pymseed_ms": py_mean * 1000,
+        "pymseed_mbps": py_mbps,
+        "traces": n_traces,
+        "samples": total_samples,
+    }
 
 
 # =========================================================================== #
 #  3. End-to-end: download + parse → numpy
 # =========================================================================== #
 
-def bench_end_to_end(network, station, start, end, channel="*",
-                     location="*", datacenter=None, n_trials=3):
+
+def bench_end_to_end(
+    network, station, start, end, channel="*", location="*", datacenter=None, n_trials=3
+):
     """Full pipeline: S3/FDSN → raw → pymseed → TraceBundle."""
     from seisfetch.client import SeisfetchClient
 
-    client = SeisfetchClient(backend="s3_open", datacenter=datacenter,
-                                   max_workers=8)
+    client = SeisfetchClient(backend="s3_open", datacenter=datacenter, max_workers=8)
     trials = []
     for i in range(n_trials):
         t0 = time.perf_counter()
-        bundle = client.get_numpy(network, station, starttime=start,
-                                  endtime=end, channel=channel,
-                                  location=location)
+        bundle = client.get_numpy(
+            network,
+            station,
+            starttime=start,
+            endtime=end,
+            channel=channel,
+            location=location,
+        )
         elapsed = time.perf_counter() - t0
         npts = sum(t.npts for t in bundle.traces)
-        trials.append({
-            "trial": i + 1,
-            "elapsed_s": elapsed,
-            "total_samples": npts,
-            "n_traces": len(bundle),
-        })
+        trials.append(
+            {
+                "trial": i + 1,
+                "elapsed_s": elapsed,
+                "total_samples": npts,
+                "n_traces": len(bundle),
+            }
+        )
 
     _header(f"End-to-End (S3 → pymseed → numpy): {network}.{station}")
     _trial_rows(trials)
@@ -180,19 +200,23 @@ def bench_end_to_end(network, station, start, end, channel="*",
 #  4. Parallel multi-day download
 # =========================================================================== #
 
-def bench_multi_day(network, station, start, n_days, channel="*",
-                    max_workers=8, datacenter=None):
+
+def bench_multi_day(
+    network, station, start, n_days, channel="*", max_workers=8, datacenter=None
+):
     """Download N consecutive days in parallel."""
     from seisfetch.client import SeisfetchClient
     from seisfetch.utils import to_epoch
 
     end_epoch = to_epoch(start) + n_days * 86400
-    client = SeisfetchClient(backend="s3_open", datacenter=datacenter,
-                                   max_workers=max_workers)
+    client = SeisfetchClient(
+        backend="s3_open", datacenter=datacenter, max_workers=max_workers
+    )
 
     t0 = time.perf_counter()
-    bundle = client.get_numpy(network, station, starttime=start,
-                              endtime=end_epoch, channel=channel)
+    bundle = client.get_numpy(
+        network, station, starttime=start, endtime=end_epoch, channel=channel
+    )
     elapsed = time.perf_counter() - t0
     npts = sum(t.npts for t in bundle.traces)
 
@@ -210,6 +234,7 @@ def bench_multi_day(network, station, start, n_days, channel="*",
 #  5. Bulk request throughput
 # =========================================================================== #
 
+
 def bench_bulk(requests_spec: list[tuple], max_workers=16):
     """Benchmark get_numpy_bulk with multiple stations."""
     from seisfetch.client import SeisfetchClient
@@ -219,8 +244,9 @@ def bench_bulk(requests_spec: list[tuple], max_workers=16):
     _header(f"Bulk Download: {len(requests_spec)} requests, {max_workers} workers")
 
     t0 = time.perf_counter()
-    summary = client.get_numpy_bulk(requests_spec, max_workers=max_workers,
-                                    progress=None)
+    summary = client.get_numpy_bulk(
+        requests_spec, max_workers=max_workers, progress=None
+    )
     elapsed = time.perf_counter() - t0
 
     _row("Total requests", summary.total)
@@ -228,8 +254,11 @@ def bench_bulk(requests_spec: list[tuple], max_workers=16):
     _row("Failed", summary.failed)
     _row("Total bytes", f"{summary.total_bytes:,}")
     _row("Wall-clock time", elapsed, "s")
-    _row("Aggregate throughput",
-         (summary.total_bytes * 8 / 1e6) / max(elapsed, 1e-9), "Mbps")
+    _row(
+        "Aggregate throughput",
+        (summary.total_bytes * 8 / 1e6) / max(elapsed, 1e-9),
+        "Mbps",
+    )
     _row("Requests/second", summary.total / max(elapsed, 1e-9))
 
     total_samples = 0
@@ -245,29 +274,36 @@ def bench_bulk(requests_spec: list[tuple], max_workers=16):
 #  6. Cross-datacenter comparison
 # =========================================================================== #
 
+
 def bench_cross_datacenter(n_trials=2):
     """Compare download speed across EarthScope, SCEDC, NCEDC."""
     _header("Cross-Datacenter Comparison")
 
     targets = [
         ("IU", "ANMO", "2024-01-15", "2024-01-15T01:00:00", "*", "earthscope"),
-        ("CI", "SDD",  "2024-06-01", "2024-06-01T01:00:00", "BHZ", "scedc"),
-        ("BK", "BRK",  "2024-06-01", "2024-06-01T01:00:00", "BHZ", "ncedc"),
+        ("CI", "SDD", "2024-06-01", "2024-06-01T01:00:00", "BHZ", "scedc"),
+        ("BK", "BRK", "2024-06-01", "2024-06-01T01:00:00", "BHZ", "ncedc"),
     ]
 
     results = []
     for net, sta, start, end, cha, dc in targets:
         try:
-            trials = bench_s3_download(net, sta, start, end, channel=cha,
-                                       datacenter=dc, n_trials=n_trials)
+            trials = bench_s3_download(
+                net, sta, start, end, channel=cha, datacenter=dc, n_trials=n_trials
+            )
             mean_mbps = np.mean([t["throughput_mbps"] for t in trials])
-            results.append({"dc": dc, "net": net, "sta": sta,
-                            "mbps": mean_mbps,
-                            "bytes": trials[0]["bytes"]})
+            results.append(
+                {
+                    "dc": dc,
+                    "net": net,
+                    "sta": sta,
+                    "mbps": mean_mbps,
+                    "bytes": trials[0]["bytes"],
+                }
+            )
         except Exception as e:
             print(f"  {dc} ({net}.{sta}): FAILED — {e}")
-            results.append({"dc": dc, "net": net, "sta": sta,
-                            "mbps": 0, "bytes": 0})
+            results.append({"dc": dc, "net": net, "sta": sta, "mbps": 0, "bytes": 0})
 
     _header("Summary: Cross-Datacenter")
     print(f"  {'Datacenter':12s} {'Net.Sta':10s} {'Size':>12s} {'Throughput':>12s}")
@@ -300,17 +336,23 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Suites:\n" + "\n".join(f"  {k:10s}  {v}" for k, v in SUITES.items()),
     )
-    parser.add_argument("--suite", default="all", choices=list(SUITES.keys()),
-                        help="Which benchmark suite to run (default: all)")
+    parser.add_argument(
+        "--suite",
+        default="all",
+        choices=list(SUITES.keys()),
+        help="Which benchmark suite to run (default: all)",
+    )
     parser.add_argument("--network", default="IU")
     parser.add_argument("--station", default="ANMO")
     parser.add_argument("--channel", default="*")
     parser.add_argument("--location", default="*")
     parser.add_argument("--start", default="2024-01-15T00:00:00")
-    parser.add_argument("--end", default=None,
-                        help="End time (default: start + 1 hour)")
-    parser.add_argument("--datacenter", default=None,
-                        choices=["earthscope", "scedc", "ncedc"])
+    parser.add_argument(
+        "--end", default=None, help="End time (default: start + 1 hour)"
+    )
+    parser.add_argument(
+        "--datacenter", default=None, choices=["earthscope", "scedc", "ncedc"]
+    )
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--workers", type=int, default=8)
@@ -318,6 +360,7 @@ def main():
 
     start = args.start
     from seisfetch.utils import to_epoch
+
     end = args.end or str(to_epoch(start) + 3600)
 
     suite = args.suite
@@ -326,9 +369,13 @@ def main():
     # ── 1. Download ───────────────────────────────────────────────── #
     raw_bytes = None
     if run_all or suite == "download":
-        trials = bench_s3_download(
-            args.network, args.station, start, end,
-            channel=args.channel, datacenter=args.datacenter,
+        bench_s3_download(
+            args.network,
+            args.station,
+            start,
+            end,
+            channel=args.channel,
+            datacenter=args.datacenter,
             n_trials=args.trials,
         )
 
@@ -337,11 +384,15 @@ def main():
         # Need raw data to parse
         if raw_bytes is None:
             from seisfetch.client import SeisfetchClient
-            client = SeisfetchClient(backend="s3_open",
-                                           datacenter=args.datacenter)
-            raw_bytes = client.get_raw(args.network, args.station,
-                                       starttime=start, endtime=end,
-                                       channel=args.channel)
+
+            client = SeisfetchClient(backend="s3_open", datacenter=args.datacenter)
+            raw_bytes = client.get_raw(
+                args.network,
+                args.station,
+                starttime=start,
+                endtime=end,
+                channel=args.channel,
+            )
         if raw_bytes:
             bench_parse(raw_bytes, n_trials=args.trials)
         else:
@@ -349,15 +400,28 @@ def main():
 
     # ── 3. End-to-end ─────────────────────────────────────────────── #
     if run_all or suite == "e2e":
-        bench_end_to_end(args.network, args.station, start, end,
-                         channel=args.channel, location=args.location,
-                         datacenter=args.datacenter, n_trials=args.trials)
+        bench_end_to_end(
+            args.network,
+            args.station,
+            start,
+            end,
+            channel=args.channel,
+            location=args.location,
+            datacenter=args.datacenter,
+            n_trials=args.trials,
+        )
 
     # ── 4. Multi-day ──────────────────────────────────────────────── #
     if (run_all or suite == "multiday") and args.days > 1:
-        bench_multi_day(args.network, args.station, start, args.days,
-                        channel=args.channel, max_workers=args.workers,
-                        datacenter=args.datacenter)
+        bench_multi_day(
+            args.network,
+            args.station,
+            start,
+            args.days,
+            channel=args.channel,
+            max_workers=args.workers,
+            datacenter=args.datacenter,
+        )
 
     # ── 5. Bulk ───────────────────────────────────────────────────── #
     if run_all or suite == "bulk":

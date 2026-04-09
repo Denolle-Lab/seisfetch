@@ -23,8 +23,11 @@ Attribution:
   EarthScope — https://www.earthscope.org/how-to-cite/
   NoisePy S3 store pattern — Jiang & Denolle (2020), doi:10.1785/0220190364
 """
+
 from __future__ import annotations
-import logging, time
+
+import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import boto3
@@ -32,8 +35,13 @@ from botocore import UNSIGNED
 from botocore.config import Config
 
 from seisfetch.utils import (
-    OPEN_BUCKET, OPEN_REGION, AUTH_ACCESS_POINT, AUTH_PREFIX,
-    date_range, date_to_year_doy, s3_key, to_epoch,
+    AUTH_ACCESS_POINT,
+    AUTH_PREFIX,
+    OPEN_BUCKET,
+    date_range,
+    date_to_year_doy,
+    s3_key,
+    to_epoch,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,8 +50,10 @@ logger = logging.getLogger(__name__)
 #  Key builders for each datacenter
 # =========================================================================== #
 
-def _earthscope_key(network, station, year, doy, location="", channel="",
-                    prefix="miniseed/", suffix=""):
+
+def _earthscope_key(
+    network, station, year, doy, location="", channel="", prefix="miniseed/", suffix=""
+):
     """EarthScope: one object per station-day (all channels)."""
     return s3_key(network, station, year, doy, prefix=prefix, suffix=suffix)
 
@@ -51,15 +61,23 @@ def _earthscope_key(network, station, year, doy, location="", channel="",
 def _scedc_key(network, station, year, doy, location="", channel="", **_):
     """SCEDC: one object per channel-day."""
     loc = location if location and location != "*" else ""
-    return (f"continuous_waveforms/{year}/{year}_{doy:03d}/"
-            f"{network}{station}{loc}{channel}__{year}{doy:03d}.ms")
+    # Format: NET(2) + STA(pad 5) + CHAN(3) + LOC(pad 3) + _ + YYYYDDD.ms
+    # Note: QuakeScope places loc instead of `__`
+    st = station.ljust(5, "_")
+    lc = loc.ljust(3, "_")
+    return (
+        f"continuous_waveforms/{year}/{year}_{doy:03d}/"
+        f"{network}{st}{channel}{lc}{year}{doy:03d}.ms"
+    )
 
 
 def _ncedc_key(network, station, year, doy, location="", channel="", **_):
     """NCEDC: one object per channel-day."""
     loc = location if location and location != "*" else ""
-    return (f"continuous_waveforms/{network}/{year}/{year}.{doy:03d}/"
-            f"{station}.{network}.{channel}.{loc}.D.{year}.{doy:03d}")
+    return (
+        f"continuous_waveforms/{network}/{year}/{year}.{doy:03d}/"
+        f"{station}.{network}.{channel}.{loc}.D.{year}.{doy:03d}"
+    )
 
 
 # =========================================================================== #
@@ -71,14 +89,14 @@ DATACENTERS = {
         "bucket": OPEN_BUCKET,
         "region": "us-east-2",
         "key_fn": _earthscope_key,
-        "per_channel": False,     # one file has ALL channels for a station-day
+        "per_channel": False,  # one file has ALL channels for a station-day
         "prefix": "miniseed/",
     },
     "scedc": {
         "bucket": "scedc-pds",
         "region": "us-west-2",
         "key_fn": _scedc_key,
-        "per_channel": True,      # one file per channel-day
+        "per_channel": True,  # one file per channel-day
     },
     "ncedc": {
         "bucket": "ncedc-pds",
@@ -90,14 +108,42 @@ DATACENTERS = {
 
 # Network → datacenter routing (following quakescope/noisepy pattern)
 # SCEDC networks
-_SCEDC_NETS = frozenset({
-    "CI", "AZ", "BC", "BG", "CE", "CT", "FA", "GP", "LB", "NC", "NP",
-    "PB", "SB", "SN", "WR", "ZY",
-})
+_SCEDC_NETS = frozenset(
+    {
+        "CI",
+        "AZ",
+        "BC",
+        "BG",
+        "CE",
+        "CT",
+        "FA",
+        "GP",
+        "LB",
+        "NC",
+        "NP",
+        "PB",
+        "SB",
+        "SN",
+        "WR",
+        "ZY",
+    }
+)
 # NCEDC networks
-_NCEDC_NETS = frozenset({
-    "BK", "BP", "CE", "GM", "GS", "NC", "NP", "PB", "SF", "UL", "WR",
-})
+_NCEDC_NETS = frozenset(
+    {
+        "BK",
+        "BP",
+        "CE",
+        "GM",
+        "GS",
+        "NC",
+        "NP",
+        "PB",
+        "SF",
+        "UL",
+        "WR",
+    }
+)
 
 
 def route_network(network: str) -> str:
@@ -113,13 +159,14 @@ def route_network(network: str) -> str:
     if net == "BK" or net in _NCEDC_NETS - _SCEDC_NETS:
         return "ncedc"
     if net in _SCEDC_NETS & _NCEDC_NETS:
-        return "ncedc"   # prefer NCEDC for shared nets (NC, NP, etc.)
+        return "ncedc"  # prefer NCEDC for shared nets (NC, NP, etc.)
     return "earthscope"
 
 
 # =========================================================================== #
 #  S3 Open Client — multi-datacenter
 # =========================================================================== #
+
 
 class S3OpenClient:
     """
@@ -146,7 +193,8 @@ class S3OpenClient:
             return self._injected_client
         if region not in self._clients:
             self._clients[region] = boto3.client(
-                "s3", region_name=region,
+                "s3",
+                region_name=region,
                 config=Config(signature_version=UNSIGNED),
             )
         return self._clients[region]
@@ -162,14 +210,32 @@ class S3OpenClient:
         resp = s3.get_object(Bucket=bucket, Key=key)
         data = resp["Body"].read()
         elapsed = time.perf_counter() - t0
-        meta = {"key": key, "bytes": len(data), "elapsed_s": elapsed,
-                "throughput_mbps": (len(data)*8/1e6)/max(elapsed, 1e-9)}
-        logger.info("fetched %s (%d B, %.2fs, %.1f Mbps)",
-                     key, meta["bytes"], elapsed, meta["throughput_mbps"])
+        meta = {
+            "key": key,
+            "bytes": len(data),
+            "elapsed_s": elapsed,
+            "throughput_mbps": (len(data) * 8 / 1e6) / max(elapsed, 1e-9),
+        }
+        logger.info(
+            "fetched %s (%d B, %.2fs, %.1f Mbps)",
+            key,
+            meta["bytes"],
+            elapsed,
+            meta["throughput_mbps"],
+        )
         return data, meta
 
-    def get_raw(self, network, station, starttime, endtime=None,
-                location="*", channel="*", suffix="", **kwargs) -> bytes:
+    def get_raw(
+        self,
+        network,
+        station,
+        starttime,
+        endtime=None,
+        location="*",
+        channel="*",
+        suffix="",
+        **kwargs,
+    ) -> bytes:
         """
         Download raw miniSEED bytes, auto-routing to the correct S3 bucket.
 
@@ -195,12 +261,19 @@ class S3OpenClient:
                 locs = [location] if location and location != "*" else [""]
                 for cha in chans:
                     for loc in locs:
-                        key = dc["key_fn"](network, station, yr, doy,
-                                           location=loc, channel=cha)
+                        key = dc["key_fn"](
+                            network, station, yr, doy, location=loc, channel=cha
+                        )
                         keys.append((dc["bucket"], key, dc["region"]))
             else:
-                key = dc["key_fn"](network, station, yr, doy, suffix=suffix,
-                                   prefix=dc.get("prefix", "miniseed/"))
+                key = dc["key_fn"](
+                    network,
+                    station,
+                    yr,
+                    doy,
+                    suffix=suffix,
+                    prefix=dc.get("prefix", "miniseed/"),
+                )
                 keys.append((dc["bucket"], key, dc["region"]))
 
         def _dl(args):
@@ -223,7 +296,8 @@ class S3OpenClient:
             raise ValueError(
                 "Per-channel S3 archives (SCEDC/NCEDC) require explicit "
                 "channel codes (e.g. 'BHZ' or 'HH?'), not '*'. "
-                "Use get_raw_bulk() for multi-channel queries.")
+                "Use get_raw_bulk() for multi-channel queries."
+            )
         if "?" in channel:
             base = channel.replace("?", "")
             return [base + c for c in ("Z", "N", "E", "1", "2")]
@@ -236,10 +310,11 @@ class S3OpenClient:
         dc = DATACENTERS[datacenter]
         s3 = self._get_s3(dc["region"])
         prefix = dc.get("prefix", "continuous_waveforms/")
-        resp = s3.list_objects_v2(
-            Bucket=dc["bucket"], Prefix=prefix, Delimiter="/")
-        return sorted(p["Prefix"].replace(prefix, "").rstrip("/")
-                      for p in resp.get("CommonPrefixes", []))
+        resp = s3.list_objects_v2(Bucket=dc["bucket"], Prefix=prefix, Delimiter="/")
+        return sorted(
+            p["Prefix"].replace(prefix, "").rstrip("/")
+            for p in resp.get("CommonPrefixes", [])
+        )
 
     def list_stations(self, network, year, doy, datacenter=None):
         dc_name = datacenter or route_network(network)
@@ -259,7 +334,11 @@ class S3OpenClient:
                 stations.add(fname.split(".")[0])
             elif dc_name == "scedc":
                 # CISDD__HHZ___2016183.ms → SDD
-                sta = fname[len(network):].split("_")[0] if fname.startswith(network) else fname[:5]
+                sta = (
+                    fname[len(network) :].split("_")[0]
+                    if fname.startswith(network)
+                    else fname[:5]
+                )
                 stations.add(sta.rstrip("_"))
             else:  # ncedc
                 stations.add(fname.split(".")[0])
@@ -269,6 +348,7 @@ class S3OpenClient:
 # =========================================================================== #
 #  Authenticated S3 (EarthScope only)
 # =========================================================================== #
+
 
 class S3AuthClient:
     """Authenticated S3 access via earthscope-sdk. EarthScope data only."""
@@ -283,8 +363,7 @@ class S3AuthClient:
         try:
             from earthscope_sdk import EarthScopeClient
         except ImportError:
-            raise ImportError(
-                "earthscope-sdk required: pip install earthscope-sdk")
+            raise ImportError("earthscope-sdk required: pip install earthscope-sdk")
         es = EarthScopeClient()
         creds = es.user.get_aws_credentials()
         return boto3.Session(
@@ -294,30 +373,38 @@ class S3AuthClient:
         ).client("s3")
 
     def _fetch_day(self, network, station, year, doy, suffix=""):
-        key = s3_key(network, station, year, doy,
-                     prefix=self._prefix, suffix=suffix)
+        key = s3_key(network, station, year, doy, prefix=self._prefix, suffix=suffix)
         t0 = time.perf_counter()
         resp = self._s3.get_object(Bucket=self._bucket, Key=key)
         data = resp["Body"].read()
         elapsed = time.perf_counter() - t0
-        return data, {"key": key, "bytes": len(data), "elapsed_s": elapsed,
-                      "throughput_mbps": (len(data)*8/1e6)/max(elapsed, 1e-9)}
+        return data, {
+            "key": key,
+            "bytes": len(data),
+            "elapsed_s": elapsed,
+            "throughput_mbps": (len(data) * 8 / 1e6) / max(elapsed, 1e-9),
+        }
 
-    def get_raw(self, network, station, starttime, endtime=None,
-                suffix="", **kwargs) -> bytes:
+    def get_raw(
+        self, network, station, starttime, endtime=None, suffix="", **kwargs
+    ) -> bytes:
         if starttime is None:
             raise ValueError("starttime is required")
         if endtime is None:
             endtime = to_epoch(starttime) + 86400
         days = list(date_range(starttime, endtime))
         chunks = []
+
         def _dl(d):
             yr, doy = date_to_year_doy(d)
             raw, _ = self._fetch_day(network, station, yr, doy, suffix=suffix)
             return raw
+
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             futs = {pool.submit(_dl, d): d for d in days}
             for f in as_completed(futs):
-                try: chunks.append(f.result())
-                except Exception: logger.warning("auth fetch failed", exc_info=True)
+                try:
+                    chunks.append(f.result())
+                except Exception:
+                    logger.warning("auth fetch failed", exc_info=True)
         return b"".join(chunks)

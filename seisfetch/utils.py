@@ -3,7 +3,9 @@ Shared utilities: S3 key construction, date/time helpers.
 
 Zero external dependencies — stdlib only.
 """
+
 from __future__ import annotations
+
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterator
@@ -16,11 +18,19 @@ AUTH_ACCESS_POINT = "earthscope-mseed-res-na3mtd4fq5kz7pntcyr1uh46use2a--ol-s3"
 AUTH_PREFIX = "miniseed/"
 
 
-def s3_key(network: str, station: str, year: int, doy: int,
-           prefix: str = "miniseed/", suffix: str = "") -> str:
+def s3_key(
+    network: str,
+    station: str,
+    year: int,
+    doy: int,
+    prefix: str = "miniseed/",
+    suffix: str = "",
+) -> str:
     """Build the S3 object key for a station-day miniSEED file."""
-    return (f"{prefix}{network}/{year}/{doy:03d}/"
-            f"{station}.{network}.{year}.{doy:03d}{suffix}")
+    return (
+        f"{prefix}{network}/{year}/{doy:03d}/"
+        f"{station}.{network}.{year}.{doy:03d}{suffix}"
+    )
 
 
 def to_datetime(t) -> datetime:
@@ -37,7 +47,7 @@ def to_datetime(t) -> datetime:
         raise ValueError(f"Cannot parse time string: {t!r}")
     if isinstance(t, datetime):
         return t.replace(tzinfo=timezone.utc) if t.tzinfo is None else t
-    if hasattr(t, "datetime"):          # ObsPy UTCDateTime
+    if hasattr(t, "datetime"):  # ObsPy UTCDateTime
         dt = t.datetime
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
     if hasattr(t, "timestamp"):

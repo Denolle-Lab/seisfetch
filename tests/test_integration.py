@@ -7,6 +7,7 @@ Skip:  pytest -m "not integration"
 These tests download real data.  They require internet access and are
 skipped in CI unless explicitly opted in.  Fastest from AWS us-east-2.
 """
+
 from __future__ import annotations
 
 import time
@@ -15,13 +16,13 @@ import numpy as np
 import pytest
 
 from seisfetch.client import SeisfetchClient
-from seisfetch.convert import parse_mseed, TraceBundle
+from seisfetch.convert import parse_mseed
 from seisfetch.s3 import S3OpenClient, route_network
-
 
 # =========================================================================== #
 #  Helpers
 # =========================================================================== #
+
 
 def _print_throughput(label, nbytes, elapsed):
     mbps = (nbytes * 8 / 1e6) / max(elapsed, 1e-9)
@@ -32,6 +33,7 @@ def _print_throughput(label, nbytes, elapsed):
 #  S3 EarthScope
 # =========================================================================== #
 
+
 @pytest.mark.integration
 class TestS3EarthScope:
     """Real downloads from s3://earthscope-geophysical-data."""
@@ -41,7 +43,8 @@ class TestS3EarthScope:
         client = SeisfetchClient(backend="s3_open")
         t0 = time.perf_counter()
         raw = client.get_raw(
-            "IU", "ANMO",
+            "IU",
+            "ANMO",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T01:00:00",
         )
@@ -53,7 +56,8 @@ class TestS3EarthScope:
         """Download + pymseed parse → numpy arrays."""
         client = SeisfetchClient(backend="s3_open")
         bundle = client.get_numpy(
-            "IU", "ANMO",
+            "IU",
+            "ANMO",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:10:00",
         )
@@ -63,17 +67,18 @@ class TestS3EarthScope:
             assert t.data.size > 0
             assert t.network == "IU"
             assert t.station == "ANMO"
-        print(f"  IU.ANMO numpy: {len(bundle)} traces, "
-              f"IDs: {bundle.ids}")
+        print(f"  IU.ANMO numpy: {len(bundle)} traces, " f"IDs: {bundle.ids}")
 
     def test_get_numpy_multi_day(self):
         """Download spanning 2 days — merged correctly."""
         client = SeisfetchClient(backend="s3_open", max_workers=4)
         bundle = client.get_numpy(
-            "IU", "ANMO",
+            "IU",
+            "ANMO",
             starttime="2024-01-15T22:00:00",
             endtime="2024-01-16T02:00:00",
-            channel="BHZ", location="00",
+            channel="BHZ",
+            location="00",
         )
         assert len(bundle) >= 1
         total_samples = sum(t.npts for t in bundle.traces)
@@ -83,8 +88,9 @@ class TestS3EarthScope:
         """UW network — routes to EarthScope."""
         assert route_network("UW") == "earthscope"
         client = SeisfetchClient(backend="s3_open")
-        raw = client.get_raw("UW", "MBW", starttime="2024-10-27",
-                             endtime="2024-10-27T00:10:00")
+        raw = client.get_raw(
+            "UW", "MBW", starttime="2024-10-27", endtime="2024-10-27T00:10:00"
+        )
         assert len(raw) > 0
         bundle = parse_mseed(raw)
         assert len(bundle) >= 1
@@ -107,6 +113,7 @@ class TestS3EarthScope:
 #  S3 SCEDC
 # =========================================================================== #
 
+
 @pytest.mark.integration
 class TestS3SCEDC:
     """Real downloads from s3://scedc-pds."""
@@ -119,7 +126,9 @@ class TestS3SCEDC:
         client = SeisfetchClient(backend="s3_open")
         t0 = time.perf_counter()
         raw = client.get_raw(
-            "CI", "SDD", channel="BHZ",
+            "CI",
+            "SDD",
+            channel="BHZ",
             starttime="2024-06-01T00:00:00",
             endtime="2024-06-01T01:00:00",
         )
@@ -131,20 +140,26 @@ class TestS3SCEDC:
         """Parse SCEDC data with pymseed."""
         client = SeisfetchClient(backend="s3_open")
         bundle = client.get_numpy(
-            "CI", "SDD", channel="BHZ",
+            "CI",
+            "SDD",
+            channel="BHZ",
             starttime="2024-06-01T00:00:00",
             endtime="2024-06-01T00:10:00",
         )
         assert len(bundle) >= 1
         assert bundle.traces[0].data.size > 0
-        print(f"  CI.SDD numpy: {bundle.ids}, "
-              f"{sum(t.npts for t in bundle.traces):,} samples")
+        print(
+            f"  CI.SDD numpy: {bundle.ids}, "
+            f"{sum(t.npts for t in bundle.traces):,} samples"
+        )
 
     def test_force_datacenter(self):
         """Force datacenter=scedc explicitly."""
         client = SeisfetchClient(backend="s3_open", datacenter="scedc")
         raw = client.get_raw(
-            "CI", "SDD", channel="BHZ",
+            "CI",
+            "SDD",
+            channel="BHZ",
             starttime="2024-06-01T00:00:00",
             endtime="2024-06-01T00:10:00",
         )
@@ -154,6 +169,7 @@ class TestS3SCEDC:
 # =========================================================================== #
 #  S3 NCEDC
 # =========================================================================== #
+
 
 @pytest.mark.integration
 class TestS3NCEDC:
@@ -167,7 +183,10 @@ class TestS3NCEDC:
         client = SeisfetchClient(backend="s3_open")
         t0 = time.perf_counter()
         raw = client.get_raw(
-            "BK", "BRK", channel="BHZ", location="00",
+            "BK",
+            "BRK",
+            channel="BHZ",
+            location="00",
             starttime="2024-06-01T00:00:00",
             endtime="2024-06-01T01:00:00",
         )
@@ -179,18 +198,24 @@ class TestS3NCEDC:
         """Parse NCEDC data with pymseed."""
         client = SeisfetchClient(backend="s3_open")
         bundle = client.get_numpy(
-            "BK", "BRK", channel="BHZ", location="00",
+            "BK",
+            "BRK",
+            channel="BHZ",
+            location="00",
             starttime="2024-06-01T00:00:00",
             endtime="2024-06-01T00:10:00",
         )
         assert len(bundle) >= 1
-        print(f"  BK.BRK numpy: {bundle.ids}, "
-              f"{sum(t.npts for t in bundle.traces):,} samples")
+        print(
+            f"  BK.BRK numpy: {bundle.ids}, "
+            f"{sum(t.npts for t in bundle.traces):,} samples"
+        )
 
 
 # =========================================================================== #
 #  FDSN Web Services
 # =========================================================================== #
+
 
 @pytest.mark.integration
 class TestFDSN:
@@ -200,7 +225,10 @@ class TestFDSN:
         """Download from EarthScope FDSN → raw bytes."""
         client = SeisfetchClient(backend="fdsn", providers="EARTHSCOPE")
         raw = client.get_raw(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:10:00",
         )
@@ -212,7 +240,10 @@ class TestFDSN:
         """FDSN → pymseed → numpy."""
         client = SeisfetchClient(backend="fdsn")
         bundle = client.get_numpy(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:10:00",
         )
@@ -225,7 +256,10 @@ class TestFDSN:
         """Download from GEOFON (GFZ Potsdam)."""
         client = SeisfetchClient(backend="fdsn", providers="GEOFON")
         bundle = client.get_numpy(
-            "GE", "DAV", channel="BHZ", location="*",
+            "GE",
+            "DAV",
+            channel="BHZ",
+            location="*",
             starttime="2024-06-01T00:00:00",
             endtime="2024-06-01T00:10:00",
         )
@@ -239,7 +273,10 @@ class TestFDSN:
             providers=["EARTHSCOPE", "GEOFON"],
         )
         raw = client.get_raw(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:10:00",
         )
@@ -248,9 +285,12 @@ class TestFDSN:
     def test_station_text(self):
         """FDSN station query (raw HTTP, no ObsPy)."""
         from seisfetch.fdsn import FDSNClient
+
         client = FDSNClient("EARTHSCOPE")
         text = client.get_station_text(
-            network="IU", station="ANMO", level="station",
+            network="IU",
+            station="ANMO",
+            level="station",
         )
         assert "ANMO" in text
 
@@ -258,6 +298,7 @@ class TestFDSN:
 # =========================================================================== #
 #  Cross-datacenter consistency
 # =========================================================================== #
+
 
 @pytest.mark.integration
 class TestCrossDatacenter:
@@ -272,12 +313,20 @@ class TestCrossDatacenter:
         fdsn_client = SeisfetchClient(backend="fdsn")
 
         bundle_s3 = s3_client.get_numpy(
-            "IU", "ANMO", channel="BHZ", location="00",
-            starttime=start, endtime=end,
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
+            starttime=start,
+            endtime=end,
         )
         bundle_fdsn = fdsn_client.get_numpy(
-            "IU", "ANMO", channel="BHZ", location="00",
-            starttime=start, endtime=end,
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
+            starttime=start,
+            endtime=end,
         )
 
         npts_s3 = sum(t.npts for t in bundle_s3.traces)
@@ -290,13 +339,15 @@ class TestCrossDatacenter:
         assert npts_s3 > 0
         assert npts_fdsn > 0
         # Within 1% or 100 samples
-        assert abs(npts_s3 - npts_fdsn) < max(npts_s3 * 0.01, 100), (
-            f"S3 vs FDSN mismatch: {npts_s3} vs {npts_fdsn}")
+        assert abs(npts_s3 - npts_fdsn) < max(
+            npts_s3 * 0.01, 100
+        ), f"S3 vs FDSN mismatch: {npts_s3} vs {npts_fdsn}"
 
 
 # =========================================================================== #
 #  xarray / zarr output (integration)
 # =========================================================================== #
+
 
 @pytest.mark.integration
 class TestXarrayIntegration:
@@ -310,7 +361,10 @@ class TestXarrayIntegration:
 
         client = SeisfetchClient(backend="s3_open")
         ds = client.get_xarray(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:10:00",
         )
@@ -329,11 +383,15 @@ class TestXarrayIntegration:
             pytest.skip("xarray+zarr not installed")
 
         import tempfile
+
         from seisfetch.convert import to_zarr
 
         client = SeisfetchClient(backend="s3_open")
         ds = client.get_xarray(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:02:00",
         )
@@ -343,14 +401,14 @@ class TestXarrayIntegration:
             to_zarr(ds, store)
             ds2 = xarray.open_zarr(store)
             for var in ds.data_vars:
-                np.testing.assert_array_equal(
-                    ds[var].values, ds2[var].values)
-            print(f"  zarr roundtrip: ✓")
+                np.testing.assert_array_equal(ds[var].values, ds2[var].values)
+            print("  zarr roundtrip: ✓")
 
 
 # =========================================================================== #
 #  ObsPy interop (integration, optional)
 # =========================================================================== #
+
 
 @pytest.mark.integration
 class TestObspyInteropIntegration:
@@ -364,7 +422,10 @@ class TestObspyInteropIntegration:
 
         client = SeisfetchClient(backend="s3_open")
         st = client.get_waveforms(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:10:00",
         )
@@ -383,7 +444,10 @@ class TestObspyInteropIntegration:
 
         client = SeisfetchClient(backend="s3_open")
         bundle = client.get_numpy(
-            "IU", "ANMO", channel="BHZ", location="00",
+            "IU",
+            "ANMO",
+            channel="BHZ",
+            location="00",
             starttime="2024-01-15T00:00:00",
             endtime="2024-01-15T00:02:00",
         )
@@ -396,6 +460,7 @@ class TestObspyInteropIntegration:
 #  Bulk fetch (integration)
 # =========================================================================== #
 
+
 @pytest.mark.integration
 class TestBulkIntegration:
     """Bulk fetch across multiple datacenters with real data."""
@@ -405,7 +470,7 @@ class TestBulkIntegration:
         client = SeisfetchClient(backend="s3_open")
         requests = [
             ("IU", "ANMO", "00", "BHZ", "2024-01-15", "2024-01-15T00:10:00"),
-            ("CI", "SDD",  "",   "BHZ", "2024-06-01", "2024-06-01T00:10:00"),
+            ("CI", "SDD", "", "BHZ", "2024-06-01", "2024-06-01T00:10:00"),
         ]
 
         summary = client.get_numpy_bulk(requests, max_workers=4, progress=None)
@@ -430,14 +495,17 @@ class TestBulkIntegration:
 
         total_mb = summary.total_bytes / 1e6
         agg_mbps = (summary.total_bytes * 8 / 1e6) / max(elapsed, 1e-9)
-        print(f"  Bulk throughput: {total_mb:.1f} MB in {elapsed:.2f}s "
-              f"({agg_mbps:.0f} Mbps, {summary.succeeded}/{summary.total} ok)")
+        print(
+            f"  Bulk throughput: {total_mb:.1f} MB in {elapsed:.2f}s "
+            f"({agg_mbps:.0f} Mbps, {summary.succeeded}/{summary.total} ok)"
+        )
         assert summary.succeeded == 3
 
 
 # =========================================================================== #
 #  Throughput benchmarks (integration)
 # =========================================================================== #
+
 
 @pytest.mark.integration
 class TestThroughput:
@@ -446,9 +514,9 @@ class TestThroughput:
     def test_parse_speed(self):
         """Measure pymseed parse speed on real EarthScope data."""
         client = SeisfetchClient(backend="s3_open")
-        raw = client.get_raw("IU", "ANMO",
-                             starttime="2024-01-15",
-                             endtime="2024-01-15T01:00:00")
+        raw = client.get_raw(
+            "IU", "ANMO", starttime="2024-01-15", endtime="2024-01-15T01:00:00"
+        )
         assert len(raw) > 0
 
         # pymseed
@@ -461,7 +529,7 @@ class TestThroughput:
         mean_ms = np.mean(times) * 1000
         mbps = (len(raw) * 8 / 1e6) / max(np.mean(times), 1e-9)
         npts = sum(t.npts for t in bundle.traces)
-        print(f"\n  pymseed parse:")
+        print("\n  pymseed parse:")
         print(f"    Data: {len(raw):,} bytes, {npts:,} samples")
         print(f"    Mean: {mean_ms:.1f} ms")
         print(f"    Throughput: {mbps:.0f} Mbps")
@@ -473,14 +541,15 @@ class TestThroughput:
         for _ in range(3):
             t0 = time.perf_counter()
             bundle = client.get_numpy(
-                "IU", "ANMO",
+                "IU",
+                "ANMO",
                 starttime="2024-01-15T00:00:00",
                 endtime="2024-01-15T00:10:00",
             )
             times.append(time.perf_counter() - t0)
 
         npts = sum(t.npts for t in bundle.traces)
-        print(f"\n  End-to-end (10 min IU.ANMO):")
+        print("\n  End-to-end (10 min IU.ANMO):")
         print(f"    Samples: {npts:,}")
         print(f"    Mean: {np.mean(times):.2f}s")
         print(f"    Trials: {[f'{t:.2f}s' for t in times]}")

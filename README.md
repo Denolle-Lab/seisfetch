@@ -120,6 +120,94 @@ pixi run lint          # ruff
 pixi run bench         # benchmarks
 ```
 
+## EarthScope credentials (required for `s3_auth` backend)
+
+The `s3_open` backend works for **SCEDC** and **NCEDC** without any credentials.
+However, the **EarthScope** bucket (`earthscope-geophysical-data`) requires
+authenticated access via the `s3_auth` backend. Without valid credentials,
+EarthScope downloads will fail and related integration tests will not pass.
+
+### 1. Create an EarthScope account
+
+Sign up at [earthscope.org](https://www.earthscope.org/) if you don't already have an account.
+
+### 2. Install the SDK and CLI
+
+```bash
+pip install "seisfetch[auth]"          # installs earthscope-sdk
+pip install earthscope-cli             # interactive login tool
+```
+
+### 3. Log in (one-time per machine)
+
+```bash
+es login
+```
+
+This opens your browser for OAuth login. After authenticating, tokens are
+stored in `~/.earthscope/` and automatically refreshed by the SDK.
+
+```
+$ es login
+Attempting to automatically open the SSO authorization page in your default browser.
+If the browser does not open, open the following URL:
+
+https://login.earthscope.org/activate?user_code=ABCD-EFGH
+
+Successful login! Access token expires at 2026-04-10 18:50:37+00:00
+```
+
+### 4. Verify credentials
+
+```python
+from earthscope_sdk import EarthScopeClient
+
+client = EarthScopeClient()
+print(client.user.get_profile())       # should print your profile
+creds = client.user.get_aws_credentials()
+print(creds.aws_access_key_id[:8])     # should print a key prefix
+client.close()
+```
+
+### 5. Use the authenticated backend
+
+```python
+from seisfetch import SeisfetchClient
+
+client = SeisfetchClient(backend="s3_auth")
+bundle = client.get_numpy(
+    "IU", "ANMO",
+    starttime="2024-01-15",
+    endtime="2024-01-15T01:00:00",
+)
+```
+
+### Headless / CI environments
+
+On machines where you cannot open a browser (servers, CI runners), export a
+refresh token obtained from your workstation:
+
+```bash
+# On your workstation (after `es login`):
+es user get-refresh-token
+# → <your-refresh-token>
+
+# On the remote host / in CI secrets:
+export ES_OAUTH2__REFRESH_TOKEN="<your-refresh-token>"
+```
+
+The SDK picks up the environment variable automatically — no `es login` needed.
+
+### Credential lookup order
+
+The SDK resolves credentials in this order:
+
+1. Constructor arguments
+2. Environment variables (`ES_OAUTH2__REFRESH_TOKEN`, etc.)
+3. `.env` file
+4. `~/.earthscope/config.toml` + `~/.earthscope/<profile>/tokens.json`
+5. Legacy EarthScope CLI v0 credentials
+
 ## Quick start
 
 ### Fetch → numpy arrays
@@ -199,7 +287,7 @@ st.filter("bandpass", freqmin=0.1, freqmax=2.0)
 ### FDSN web services (non-S3 providers)
 
 ```python
-# Single provider
+# Direct HTTP — no ObsPy needed (uses httpx or urllib)
 client = SeisfetchClient(backend="fdsn", providers="GEOFON")
 bundle = client.get_numpy(
     "GE", "DAV", channel="BHZ",
@@ -212,6 +300,34 @@ client = SeisfetchClient(
     backend="fdsn",
     providers=["EARTHSCOPE", "GEOFON", "INGV", "ORFEUS"],
 )
+```
+
+### FDSN via ObsPy (non-US servers)
+
+For non-US FDSN servers with authentication quirks, routing tokens, or
+non-standard endpoints, use ObsPy's battle-tested FDSN client as the
+download backend:
+
+```bash
+pip install "seisfetch[obspy]"
+```
+
+```python
+# ObsPy handles the download; seisfetch provides the unified interface
+client = SeisfetchClient(backend="obspy_fdsn", providers="INGV")
+bundle = client.get_numpy(
+    "IV", "ACER", channel="HHZ",
+    starttime="2024-06-01",
+    endtime="2024-06-01T01:00:00",
+)
+
+# Or use ObspyFDSNClient directly
+from seisfetch import ObspyFDSNClient
+with ObspyFDSNClient(provider="GEOFON") as oc:
+    raw = oc.get_raw("GE", "DAV", channel="BHZ",
+                     starttime="2024-06-01", endtime="2024-06-01T01:00:00")
+    # raw bytes → parse with pymseed as usual
+    bundle = parse_mseed(raw)
 ```
 
 ### Station availability (ObsPy FDSN client)
@@ -366,23 +482,28 @@ SeisfetchClient
 ├─ backend="s3_auth"
 │  └── S3AuthClient (earthscope-sdk credentials)
 │
-└─ backend="fdsn"
-   ├── FDSNClient("GEOFON")    — single server, HTTP download
-   └── FDSNMultiClient([...])  — parallel fan-out, merge results
+├─ backend="fdsn"
+│  ├── FDSNClient("GEOFON")    — single server, HTTP download (no ObsPy)
+│  └── FDSNMultiClient([...])  — parallel fan-out, merge results
+│
+└─ backend="obspy_fdsn"
+   └── ObspyFDSNClient         — ObsPy's FDSN client [requires obspy]
+       Best for non-US servers with auth quirks or routing tokens
 ```
 
 ### ObsPy boundary
 
-ObsPy is **never** used for downloading or decoding miniSEED.  It is only imported lazily when you call:
+ObsPy is **optional**.  The core download + decode path never uses ObsPy.  It is imported lazily when you call:
 
-| Method | ObsPy used for |
-|--------|----------------|
+| Method / Backend | ObsPy used for |
+|------------------|----------------|
+| `backend="obspy_fdsn"` | **Downloading** via ObsPy's FDSN client (for non-US servers) |
 | `get_waveforms()` | Converting `TraceBundle` → `Stream` |
 | `get_availability()` | Querying fdsnws-station metadata |
 | `bundle_to_obspy()` | Converting `TraceBundle` → `Stream` |
 | `bundle_to_inventory()` | Fetching `Inventory` for traces |
 
-If ObsPy is not installed, these methods raise `ImportError` with install instructions.  All other methods work without ObsPy.
+Install with `pip install "seisfetch[obspy]"`.  If ObsPy is not installed, these methods raise `ImportError` with install instructions.  All other methods work without ObsPy.
 
 ## Dependencies
 

@@ -5,6 +5,7 @@ Designed for quakescope-scale data mining: submit hundreds or thousands
 of (network, station, channel, time) requests and have them processed
 in parallel across threads with progress tracking.
 """
+
 from __future__ import annotations
 
 import csv
@@ -15,8 +16,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
@@ -24,9 +23,11 @@ logger = logging.getLogger(__name__)
 #  Request / Result dataclasses
 # --------------------------------------------------------------------------- #
 
+
 @dataclass(frozen=True)
 class BulkRequest:
     """One waveform request in a bulk job."""
+
     network: str
     station: str
     location: str = "*"
@@ -40,18 +41,22 @@ class BulkRequest:
 
     def to_dict(self) -> dict:
         return {
-            "network": self.network, "station": self.station,
-            "location": self.location, "channel": self.channel,
-            "starttime": self.starttime, "endtime": self.endtime,
+            "network": self.network,
+            "station": self.station,
+            "location": self.location,
+            "channel": self.channel,
+            "starttime": self.starttime,
+            "endtime": self.endtime,
         }
 
 
 @dataclass
 class BulkResult:
     """Result for one request in a bulk job."""
+
     request: BulkRequest
     raw: bytes = b""
-    bundle: Optional[object] = None   # TraceBundle, filled lazily
+    bundle: Optional[object] = None  # TraceBundle, filled lazily
     elapsed_s: float = 0.0
     error: Optional[str] = None
 
@@ -71,6 +76,7 @@ class BulkResult:
 @dataclass
 class BulkSummary:
     """Aggregate statistics for a completed bulk job."""
+
     results: list[BulkResult] = field(default_factory=list)
 
     @property
@@ -102,13 +108,16 @@ class BulkSummary:
         return [r for r in self.results if not r.success]
 
     def __repr__(self) -> str:
-        return (f"BulkSummary({self.succeeded}/{self.total} ok, "
-                f"{self.total_bytes/1e6:.1f} MB)")
+        return (
+            f"BulkSummary({self.succeeded}/{self.total} ok, "
+            f"{self.total_bytes/1e6:.1f} MB)"
+        )
 
 
 # --------------------------------------------------------------------------- #
 #  Build requests from various inputs
 # --------------------------------------------------------------------------- #
+
 
 def requests_from_list(
     items: Sequence[dict | tuple | BulkRequest],
@@ -118,7 +127,7 @@ def requests_from_list(
 
     Accepts:
       - list of BulkRequest
-      - list of dicts with keys: network, station, [location, channel, starttime, endtime]
+      - list of dicts: network, station, [location, channel, start, end]
       - list of tuples: (net, sta, loc, cha, start, end)
     """
     out = []
@@ -128,8 +137,7 @@ def requests_from_list(
         elif isinstance(item, dict):
             out.append(BulkRequest(**item))
         elif isinstance(item, (list, tuple)):
-            keys = ("network", "station", "location", "channel",
-                    "starttime", "endtime")
+            keys = ("network", "station", "location", "channel", "starttime", "endtime")
             d = dict(zip(keys, item))
             out.append(BulkRequest(**d))
         else:
@@ -154,11 +162,16 @@ def requests_from_csv(path: str | Path) -> list[BulkRequest]:
             if len(row) < 6:
                 logger.warning("skipping malformed CSV row: %s", row)
                 continue
-            reqs.append(BulkRequest(
-                network=row[0], station=row[1],
-                location=row[2] or "*", channel=row[3] or "*",
-                starttime=row[4], endtime=row[5],
-            ))
+            reqs.append(
+                BulkRequest(
+                    network=row[0],
+                    station=row[1],
+                    location=row[2] or "*",
+                    channel=row[3] or "*",
+                    starttime=row[4],
+                    endtime=row[5],
+                )
+            )
     return reqs
 
 
@@ -173,12 +186,17 @@ ProgressCallback = Callable[[int, int, BulkResult], None]
 def _default_progress(completed: int, total: int, result: BulkResult):
     tag = result.request.tag
     if result.success:
-        logger.info("[%d/%d] %s: %d B in %.2fs (%.1f Mbps)",
-                    completed, total, tag, result.nbytes,
-                    result.elapsed_s, result.throughput_mbps)
+        logger.info(
+            "[%d/%d] %s: %d B in %.2fs (%.1f Mbps)",
+            completed,
+            total,
+            tag,
+            result.nbytes,
+            result.elapsed_s,
+            result.throughput_mbps,
+        )
     else:
-        logger.warning("[%d/%d] %s: FAILED — %s",
-                       completed, total, tag, result.error)
+        logger.warning("[%d/%d] %s: FAILED — %s", completed, total, tag, result.error)
 
 
 def fetch_bulk_raw(
@@ -215,13 +233,13 @@ def fetch_bulk_raw(
             raw = client.get_raw(**req.to_dict())
             elapsed = time.perf_counter() - t0
             if not raw:
-                return BulkResult(request=req, elapsed_s=elapsed,
-                                  error="no data returned")
+                return BulkResult(
+                    request=req, elapsed_s=elapsed, error="no data returned"
+                )
             return BulkResult(request=req, raw=raw, elapsed_s=elapsed)
         except Exception as e:
             elapsed = time.perf_counter() - t0
-            return BulkResult(request=req, elapsed_s=elapsed,
-                              error=str(e))
+            return BulkResult(request=req, elapsed_s=elapsed, error=str(e))
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch_one, r): r for r in requests}
@@ -270,15 +288,18 @@ def fetch_bulk_numpy(
         try:
             raw = client.get_raw(**req.to_dict())
             if not raw:
-                return BulkResult(request=req, elapsed_s=time.perf_counter()-t0,
-                                  error="no data returned")
+                return BulkResult(
+                    request=req,
+                    elapsed_s=time.perf_counter() - t0,
+                    error="no data returned",
+                )
             bundle = parse_mseed(raw)
             elapsed = time.perf_counter() - t0
-            return BulkResult(request=req, raw=raw, bundle=bundle,
-                              elapsed_s=elapsed)
+            return BulkResult(request=req, raw=raw, bundle=bundle, elapsed_s=elapsed)
         except Exception as e:
-            return BulkResult(request=req, elapsed_s=time.perf_counter()-t0,
-                              error=str(e))
+            return BulkResult(
+                request=req, elapsed_s=time.perf_counter() - t0, error=str(e)
+            )
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch_and_parse, r): r for r in requests}

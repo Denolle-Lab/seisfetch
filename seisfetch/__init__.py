@@ -16,29 +16,62 @@ Optional outputs:
 
 See THIRD_PARTY_NOTICES.md for full attribution and licenses.
 """
+
 from seisfetch.bulk import (
-    BulkRequest, BulkResult, BulkSummary,
-    fetch_bulk_raw, fetch_bulk_numpy,
-    requests_from_list, requests_from_csv,
+    BulkRequest,
+    BulkResult,
+    BulkSummary,
+    fetch_bulk_numpy,
+    fetch_bulk_raw,
+    requests_from_csv,
+    requests_from_list,
 )
 from seisfetch.client import SeisfetchClient
 from seisfetch.convert import (
-    TraceArray, TraceBundle, bundle_to_obspy, bundle_to_inventory,
-    bundle_to_xarray, parse_mseed, to_zarr,
+    ChannelMetadata,
+    GapInfo,
+    TraceArray,
+    TraceBundle,
+    bundle_to_inventory,
+    bundle_to_obspy,
+    bundle_to_xarray,
+    parse_mseed,
+    to_zarr,
 )
 from seisfetch.fdsn import (
-    FDSNClient, FDSNMultiClient, list_providers, resolve_provider,
+    FDSNClient,
+    FDSNMultiClient,
+    ObspyFDSNClient,
+    list_providers,
+    resolve_provider,
 )
 from seisfetch.s3 import S3AuthClient, S3OpenClient, route_network
 
 __version__ = "0.2.0"
 __all__ = [
-    "SeisfetchClient", "S3OpenClient", "S3AuthClient",
-    "FDSNClient", "FDSNMultiClient", "list_providers", "resolve_provider",
-    "parse_mseed", "TraceArray", "TraceBundle",
-    "bundle_to_obspy", "bundle_to_inventory", "bundle_to_xarray", "to_zarr",
+    "SeisfetchClient",
+    "S3OpenClient",
+    "S3AuthClient",
+    "FDSNClient",
+    "FDSNMultiClient",
+    "ObspyFDSNClient",
+    "list_providers",
+    "resolve_provider",
+    "parse_mseed",
+    "TraceArray",
+    "TraceBundle",
+    "GapInfo",
+    "ChannelMetadata",
+    "bundle_to_obspy",
+    "bundle_to_inventory",
+    "bundle_to_xarray",
+    "to_zarr",
     "route_network",
-    "BulkRequest", "BulkResult", "BulkSummary",
-    "fetch_bulk_raw", "fetch_bulk_numpy",
-    "requests_from_list", "requests_from_csv",
+    "BulkRequest",
+    "BulkResult",
+    "BulkSummary",
+    "fetch_bulk_raw",
+    "fetch_bulk_numpy",
+    "requests_from_list",
+    "requests_from_csv",
 ]
