@@ -159,6 +159,20 @@ class TestParseMseed:
         assert g.duration_s > 4.0
         assert g.samples_missing > 0
 
+    def test_non_utf8_v2_record(self):
+        """v2 records with non-UTF-8 header bytes are recovered via latin-1."""
+        raw = bytearray(make_mseed())
+        # Inject 0xe1 into station field (offset 8) — invalid UTF-8 start byte
+        raw[8] = 0xE1
+        b = parse_mseed(bytes(raw))
+        assert len(b) >= 1
+        t = b.traces[0]
+        # Station name should be recovered from raw v2 header via latin-1
+        assert t.station != ""
+        assert t.network == "IU"
+        assert t.channel == "BHZ"
+        assert t.data.size > 0
+
 
 class TestBundleToObspy:
     def test_roundtrip(self):
