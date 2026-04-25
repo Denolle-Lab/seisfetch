@@ -23,15 +23,19 @@ Designed for [quakescope](https://github.com/seisscoped/quakescope)-scale data m
 
 ## S3 data archives
 
-Three open-data buckets are supported natively, with auto-routing by network code:
+Three S3 archives are supported natively, with auto-routing by network code:
 
 | Archive | Bucket | Region | Path convention | Auth |
 |---------|--------|--------|-----------------|------|
-| EarthScope | `earthscope-geophysical-data` | us-east-2 | `miniseed/{NET}/{YEAR}/{DOY}/{STA}.{NET}.{YEAR}.{DOY}` | None |
+| EarthScope | `earthscope-geophysical-data` | us-east-2 | `miniseed/{NET}/{YEAR}/{DOY}/{STA}.{NET}.{YEAR}.{DOY}` | `earthscope-sdk` required |
 | SCEDC | `scedc-pds` | us-west-2 | `continuous_waveforms/{YEAR}/{YEAR}_{DOY}/{NET}{STA}{LOC}{CHA}__{YEAR}{DOY}.ms` | None |
 | NCEDC | `ncedc-pds` | us-east-2 | `continuous_waveforms/{NET}/{YEAR}/{YEAR}.{DOY}/{STA}.{NET}.{CHA}.{LOC}.D.{YEAR}.{DOY}` | None |
 
 EarthScope stores one object per station-day (all channels).  SCEDC and NCEDC store one object per channel-day, so you must specify channel codes explicitly.
+
+At the moment, only SCEDC and NCEDC work anonymously through `backend="s3_open"`.
+EarthScope S3 access currently requires `backend="s3_auth"` plus EarthScope-vended
+temporary AWS credentials.
 
 **Auto-routing:** CI → SCEDC, BK → NCEDC, IU/UW/TA/… → EarthScope.  Override with `datacenter=`.
 
@@ -157,6 +161,13 @@ https://login.earthscope.org/activate?user_code=ABCD-EFGH
 Successful login! Access token expires at 2026-04-10 18:50:37+00:00
 ```
 
+### 3a. Request S3 direct-access approval if needed
+
+EarthScope's current SDK docs state that direct S3 access is still in beta and
+your account must be enabled for it. If `es login` succeeds but `get_aws_credentials()`
+or `backend="s3_auth"` still fails, email `data-help@earthscope.org` and request
+S3 direct-access authorization for your EarthScope account.
+
 ### 4. Verify credentials
 
 ```python
@@ -177,6 +188,8 @@ from seisfetch import SeisfetchClient
 client = SeisfetchClient(backend="s3_auth")
 bundle = client.get_numpy(
     "IU", "ANMO",
+    location="00",
+    channel="BHZ",
     starttime="2024-01-15",
     endtime="2024-01-15T01:00:00",
 )
@@ -290,9 +303,9 @@ st.filter("bandpass", freqmin=0.1, freqmax=2.0)
 # Direct HTTP — no ObsPy needed (uses httpx or urllib)
 client = SeisfetchClient(backend="fdsn", providers="GEOFON")
 bundle = client.get_numpy(
-    "GE", "DAV", channel="BHZ",
-    starttime="2024-06-01",
-    endtime="2024-06-01T01:00:00",
+    "GE", "BKB", channel="BHZ",
+    starttime="2011-03-11T06:00:00",
+    endtime="2011-03-11T06:05:00",
 )
 
 # Multiple providers in parallel
@@ -324,8 +337,8 @@ bundle = client.get_numpy(
 # Or use ObspyFDSNClient directly
 from seisfetch import ObspyFDSNClient
 with ObspyFDSNClient(provider="GEOFON") as oc:
-    raw = oc.get_raw("GE", "DAV", channel="BHZ",
-                     starttime="2024-06-01", endtime="2024-06-01T01:00:00")
+    raw = oc.get_raw("GE", "BKB", channel="BHZ",
+                     starttime="2011-03-11T06:00:00", endtime="2011-03-11T06:05:00")
     # raw bytes → parse with pymseed as usual
     bundle = parse_mseed(raw)
 ```
@@ -338,7 +351,7 @@ with ObspyFDSNClient(provider="GEOFON") as oc:
 # for metadata discovery on non-EarthScope servers.
 client = SeisfetchClient(backend="fdsn", providers="GEOFON")
 inv = client.get_availability(
-    network="GE", station="DAV", channel="BHZ", level="response",
+    network="GE", station="BKB", channel="BHZ", level="response",
 )
 ```
 

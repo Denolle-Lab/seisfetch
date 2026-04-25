@@ -4,8 +4,8 @@ and 37+ FDSN servers.
 
 Core deps: numpy + boto3 + pymseed.  No ObsPy required.
 
-S3 archives (anonymous, open data):
-  EarthScope  s3://earthscope-geophysical-data  (us-east-2)
+S3 archives:
+  EarthScope  s3://earthscope-geophysical-data  (us-east-2, auth via earthscope-sdk)
   SCEDC       s3://scedc-pds                    (us-west-2)
   NCEDC       s3://ncedc-pds                    (us-east-2)
 

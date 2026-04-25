@@ -28,7 +28,7 @@ class SeisfetchClient:
       ``get_availability()`` → ObsPy Inventory (station metadata)
 
     Backends:
-      ``s3_open``    — anonymous S3 (SCEDC, NCEDC, EarthScope open)
+      ``s3_open``    — anonymous S3 (SCEDC, NCEDC)
       ``s3_auth``    — authenticated S3 (EarthScope, requires earthscope-sdk)
       ``fdsn``       — direct HTTP to any FDSN server (no ObsPy)
       ``obspy_fdsn`` — ObsPy's FDSN client (requires obspy, best for non-US servers)
