@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 # pymseed is a core dependency — imported eagerly
 from pymseed import MS3Record, sourceid2nslc  # noqa: E402
+from pymseed.clib import ffi as _ffi  # noqa: E402
 
 
 @dataclass
@@ -239,7 +240,13 @@ def parse_mseed(raw: bytes) -> TraceBundle:
 
     traces = []
     for msr in MS3Record.from_buffer(raw, unpack_data=True):
-        sid = msr.sourceid
+        # Access sourceid safely — some miniSEED v2 records have non-UTF-8
+        # bytes in header fields.  Fall back to latin-1 which never fails.
+        try:
+            sid = msr.sourceid
+        except UnicodeDecodeError:
+            sid = _ffi.string(msr._msr.sid).decode("latin-1")
+            logger.debug("Decoded sourceid with latin-1 fallback: %s", sid)
         try:
             net, sta, loc, cha = sourceid2nslc(sid)
         except Exception:
@@ -249,18 +256,32 @@ def parse_mseed(raw: bytes) -> TraceBundle:
             loc = parts[2] if len(parts) > 2 else ""
             cha = "".join(parts[3:6]) if len(parts) > 5 else "".join(parts[3:])
 
+        # For v2 records where libmseed may have dropped non-ASCII NSLC
+        # codes during FDSN SID conversion, try the raw binary header.
+        if msr.formatversion == 2 and not sta:
+            rec_bytes = msr.record
+            if rec_bytes is not None and len(rec_bytes) >= 20:
+                sta = rec_bytes[8:13].decode("latin-1").strip()
+                if not net:
+                    net = rec_bytes[18:20].decode("latin-1").strip()
+                if not loc:
+                    loc = rec_bytes[13:15].decode("latin-1").strip()
+                if not cha:
+                    cha = rec_bytes[15:18].decode("latin-1").strip()
+
         arr = msr.np_datasamples.copy()
         if arr.size == 0:
             continue
 
-        # Capture encoding and quality flags from the record
+        # Capture encoding and quality flags from the record.
+        # pymseed may raise UnicodeDecodeError on some v2 records.
         try:
-            enc = msr.encoding_str
-        except Exception:
+            enc = msr.encoding_str or ""
+        except (UnicodeDecodeError, Exception):
             enc = ""
         try:
             flags = msr.flags_dict()
-        except Exception:
+        except (UnicodeDecodeError, Exception):
             flags = {}
 
         traces.append(

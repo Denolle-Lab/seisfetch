@@ -4,8 +4,8 @@ and 37+ FDSN servers.
 
 Core deps: numpy + boto3 + pymseed.  No ObsPy required.
 
-S3 archives (anonymous, open data):
-  EarthScope  s3://earthscope-geophysical-data  (us-east-2)
+S3 archives:
+  EarthScope  s3://earthscope-geophysical-data  (us-east-2, auth via earthscope-sdk)
   SCEDC       s3://scedc-pds                    (us-west-2)
   NCEDC       s3://ncedc-pds                    (us-east-2)
 
@@ -47,6 +47,16 @@ from seisfetch.fdsn import (
 )
 from seisfetch.s3 import S3AuthClient, S3OpenClient, route_network
 
+# Earth2Studio adapters — lazy import (requires earth2studio + xarray)
+try:
+    from seisfetch.earth2 import (
+        SeismicDataFrameSource,
+        SeismicDataSource,
+        bundle_to_earth2,
+    )
+except ImportError:  # earth2studio / xarray not installed
+    pass
+
 __version__ = "0.2.0"
 __all__ = [
     "SeisfetchClient",
@@ -74,4 +84,7 @@ __all__ = [
     "fetch_bulk_numpy",
     "requests_from_list",
     "requests_from_csv",
+    "SeismicDataSource",
+    "SeismicDataFrameSource",
+    "bundle_to_earth2",
 ]

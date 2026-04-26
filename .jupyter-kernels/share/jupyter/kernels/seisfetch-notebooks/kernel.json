@@ -1,0 +1,16 @@
+{
+ "argv": [
+  "/Users/marinedenolle/GitHub/seisfetch/.pixi/envs/notebooks/bin/python",
+  "-Xfrozen_modules=off",
+  "-m",
+  "ipykernel_launcher",
+  "-f",
+  "{connection_file}"
+ ],
+ "display_name": "Python (seisfetch-notebooks)",
+ "language": "python",
+ "metadata": {
+  "debugger": true
+ },
+ "kernel_protocol_version": "5.5"
+}

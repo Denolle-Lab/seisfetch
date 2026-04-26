@@ -257,14 +257,14 @@ class TestFDSN:
         client = SeisfetchClient(backend="fdsn", providers="GEOFON")
         bundle = client.get_numpy(
             "GE",
-            "DAV",
+            "BKB",
             channel="BHZ",
             location="*",
-            starttime="2024-06-01T00:00:00",
-            endtime="2024-06-01T00:10:00",
+            starttime="2011-03-11T06:00:00",
+            endtime="2011-03-11T06:05:00",
         )
         assert len(bundle) >= 1
-        print(f"  GE.DAV via GEOFON: {bundle.ids}")
+        print(f"  GE.BKB via GEOFON: {bundle.ids}")
 
     def test_multi_provider(self):
         """Multi-provider fan-out: EARTHSCOPE + GEOFON."""

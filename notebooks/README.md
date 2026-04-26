@@ -42,6 +42,8 @@ pixi run -e notebooks lab              # open JupyterLab in the browser
 
 ## Notes
 
-- All notebooks fetch real data from EarthScope, SCEDC, and NCEDC S3 buckets
-  (anonymous access — no credentials needed).
+- `01_quickstart.ipynb` uses anonymous SCEDC examples by default and includes
+  an EarthScope `s3_auth` example that requires `earthscope-sdk` credentials.
+- EarthScope direct S3 access is not anonymous. Run `es login` and make sure
+  your account is enabled for S3 direct access before using `backend="s3_auth"`.
 - Fastest to run from within AWS `us-east-2`; works from any internet-connected machine.
