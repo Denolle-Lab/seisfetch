@@ -189,6 +189,69 @@ class SeisfetchClient:
             return self._client.get_availability(**kwargs)
         raise NotImplementedError("get_availability() requires backend='fdsn'")
 
+    # ── Station discovery via fdsnws-station (no ObsPy required) ─────── #
+
+    def get_stations(
+        self,
+        network,
+        station="*",
+        location="*",
+        channel="*",
+        starttime=None,
+        endtime=None,
+        level="channel",
+        provider=None,
+    ) -> list[dict]:
+        """
+        Query the fdsnws-station service for matching channels.
+
+        Auto-routes to the FDSN service co-located with each S3 archive:
+        ``CI`` → SCEDC, ``BK``/``NC`` → NCEDC, others → EARTHSCOPE.
+        Override with ``provider``. Returns a list of dicts (one per channel)
+        with keys ``Network``, ``Station``, ``Location``, ``Channel``,
+        ``Latitude``, ``Longitude``, ``Elevation``, ``StartTime``, ``EndTime``,
+        and any other columns reported by the service.
+
+        No ObsPy required — uses the lightweight ``FDSNClient`` backend.
+        """
+        from seisfetch.fdsn import FDSNClient
+        from seisfetch.s3 import route_network
+
+        if provider is None:
+            dc = route_network(network)
+            provider = {
+                "scedc": "SCEDC",
+                "ncedc": "NCEDC",
+                "earthscope": "EARTHSCOPE",
+            }.get(dc, "EARTHSCOPE")
+
+        meta_client = FDSNClient(provider=provider)
+        text = meta_client.get_station_text(
+            network=network,
+            station=station,
+            location=location,
+            channel=channel,
+            starttime=starttime,
+            endtime=endtime,
+            level=level,
+            format="text",
+        )
+        rows: list[dict] = []
+        header: list[str] | None = None
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            if line.startswith("#"):
+                header = [h.strip() for h in line.lstrip("#").split("|")]
+                continue
+            if header is None:
+                continue
+            parts = line.split("|")
+            if len(parts) < len(header):
+                continue
+            rows.append(dict(zip(header, parts)))
+        return rows
+
     # ── Bulk: parallel multi-request ─────────────────────────────────── #
 
     def get_raw_bulk(self, requests, max_workers=16, progress=None):

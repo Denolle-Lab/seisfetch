@@ -1,5 +1,6 @@
 """Tests for seisfetch.convert."""
 
+import os
 import tempfile
 
 import numpy as np
@@ -10,12 +11,20 @@ from seisfetch.convert import (
     GapInfo,
     TraceArray,
     TraceBundle,
+    bundle_to_metadata_table,
     bundle_to_obspy,
     bundle_to_xarray,
+    metadata_table_to_dict,
     parse_mseed,
     to_zarr,
+    write_metadata_csv,
 )
-from tests.helpers import make_gapped_mseed, make_mseed, make_multichan_mseed
+from tests.helpers import (
+    make_gapped_mseed,
+    make_inventory,
+    make_mseed,
+    make_multichan_mseed,
+)
 
 
 class TestTraceArray:
@@ -202,6 +211,115 @@ class TestBundleToXarray:
         assert len(bundle_to_xarray(parse_mseed(make_multichan_mseed())).data_vars) == 3
 
 
+class TestMetadataTable:
+    def test_waveform_only(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+        table = bundle_to_metadata_table(parse_mseed(make_multichan_mseed()))
+        assert len(table) == 3
+        assert set(table["channel"]) == {"BHZ", "BHN", "BHE"}
+        row = table.loc[table["channel_id"] == "IU.ANMO.00.BHZ"].iloc[0]
+        assert row["network"] == "IU"
+        assert row["sampling_rate"] == 100.0
+        assert row["num_segments"] >= 1
+
+    def test_gap_summary(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+        table = bundle_to_metadata_table(parse_mseed(make_gapped_mseed()))
+        row = table.loc[table["channel_id"] == "IU.ANMO.00.BHZ"].iloc[0]
+        assert row["num_segments"] >= 2
+        assert row["num_gaps"] >= 1
+        assert row["total_samples"] > 0
+
+    def test_inventory_merge(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+        bundle = parse_mseed(make_multichan_mseed())
+        inventory = make_inventory(channels=("BHZ", "BHN", "BHE"))
+        table = bundle_to_metadata_table(bundle, inventory=inventory)
+        row = table.loc[table["channel_id"] == "IU.ANMO.00.BHZ"].iloc[0]
+        assert row["latitude"] == pytest.approx(34.9459)
+        assert row["sensor_description"] == "Trillium Compact"
+        assert row["scale"] == pytest.approx(588000000.0)
+        assert row["scale_units"] == "M/S"
+
+    def test_missing_inventory_leaves_nulls(self):
+        try:
+            import pandas as pd
+        except ImportError:
+            pytest.skip("pandas not installed")
+        table = bundle_to_metadata_table(parse_mseed(make_mseed()))
+        row = table.iloc[0]
+        assert pd.isna(row["latitude"])
+        assert row["sensor_description"] is None
+
+    def test_non_scalar_metadata_is_sanitized(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+
+        class OddEncoding:
+            def __str__(self):
+                return "ODD_ENCODING"
+
+        bundle = parse_mseed(make_mseed())
+        bundle.traces[0].encoding = OddEncoding()
+        table = bundle_to_metadata_table(bundle)
+        row = table.iloc[0]
+        assert row["encoding"] == "ODD_ENCODING"
+
+
+class TestMetadataDict:
+    def test_roundtrip(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+        table = bundle_to_metadata_table(parse_mseed(make_mseed()))
+        out = metadata_table_to_dict(table)
+        assert "IU.ANMO.00.BHZ" in out
+        assert out["IU.ANMO.00.BHZ"]["network"] == "IU"
+        assert out["IU.ANMO.00.BHZ"]["channel_id"] == "IU.ANMO.00.BHZ"
+
+
+class TestMetadataCsv:
+    def test_write_next_to_zarr(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+        table = bundle_to_metadata_table(parse_mseed(make_mseed()))
+        with tempfile.TemporaryDirectory() as d:
+            csv_path = write_metadata_csv(table, f"{d}/waveforms.zarr")
+            assert csv_path.endswith("metadata.csv")
+            assert os.path.exists(csv_path)
+
+    def test_write_handles_sanitized_object_values(self):
+        try:
+            import pandas  # noqa: F401
+        except ImportError:
+            pytest.skip("pandas not installed")
+
+        class OddEncoding:
+            def __str__(self):
+                return "ODD_ENCODING"
+
+        bundle = parse_mseed(make_mseed())
+        bundle.traces[0].encoding = OddEncoding()
+        table = bundle_to_metadata_table(bundle)
+        with tempfile.TemporaryDirectory() as d:
+            csv_path = write_metadata_csv(table, f"{d}/waveforms.zarr")
+            assert os.path.exists(csv_path)
+
+
 class TestToZarr:
     def test_from_bundle(self):
         try:
@@ -226,3 +344,23 @@ class TestToZarr:
                 ds["IU_ANMO_00_BHZ"].values,
                 xarray.open_zarr(f"{d}/t.zarr")["IU_ANMO_00_BHZ"].values,
             )
+
+    def test_writes_metadata_group(self):
+        try:
+            import pandas  # noqa: F401
+            import xarray
+            import zarr  # noqa: F401
+        except ImportError:
+            pytest.skip("xarray+zarr+pandas not installed")
+        bundle = parse_mseed(make_mseed(npts=100))
+        table = bundle_to_metadata_table(bundle)
+        with tempfile.TemporaryDirectory() as d:
+            store = f"{d}/t.zarr"
+            to_zarr(bundle, store, metadata=table)
+            ds = xarray.open_zarr(store)
+            meta = xarray.open_zarr(store, group="metadata/channel_table")
+            assert ds.attrs["seisfetch_schema_version"] == "1"
+            assert ds.attrs["seisfetch_metadata_format"] == "channel_table.v1"
+            assert int(ds.attrs["seisfetch_metadata_rows"]) == 1
+            assert meta.attrs["seisfetch_metadata_format"] == "channel_table.v1"
+            assert meta["channel_id"].values.tolist() == ["IU.ANMO.00.BHZ"]

@@ -16,10 +16,51 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+METADATA_TABLE_COLUMNS = [
+    "channel_id",
+    "network",
+    "station",
+    "location",
+    "channel",
+    "starttime_ns",
+    "endtime_ns",
+    "sampling_rate",
+    "total_samples",
+    "num_segments",
+    "num_gaps",
+    "total_gap_duration_s",
+    "encoding",
+    "latitude",
+    "longitude",
+    "elevation_m",
+    "depth_m",
+    "azimuth_deg",
+    "dip_deg",
+    "sensor_description",
+    "scale",
+    "scale_freq",
+    "scale_units",
+    "station_start",
+    "station_end",
+]
+
+_NUMERIC_METADATA_COLUMNS = {
+    "latitude",
+    "longitude",
+    "elevation_m",
+    "depth_m",
+    "azimuth_deg",
+    "dip_deg",
+    "scale",
+    "scale_freq",
+}
 
 # pymseed is a core dependency — imported eagerly
 from pymseed import MS3Record, sourceid2nslc  # noqa: E402
@@ -275,10 +316,13 @@ def parse_mseed(raw: bytes) -> TraceBundle:
 
         # Capture encoding and quality flags from the record.
         # pymseed may raise UnicodeDecodeError on some v2 records.
+        # ``encoding_str`` is a method on MS3Record, not a property, so call it.
         try:
-            enc = msr.encoding_str or ""
+            enc = msr.encoding_str() or ""
         except (UnicodeDecodeError, Exception):
             enc = ""
+        if not isinstance(enc, str):
+            enc = str(enc) if enc is not None else ""
         try:
             flags = msr.flags_dict()
         except (UnicodeDecodeError, Exception):
@@ -381,6 +425,264 @@ def bundle_to_inventory(bundle: TraceBundle, provider: str = "EARTHSCOPE"):
     return inv
 
 
+def _require_pandas():
+    try:
+        import pandas as pd
+    except ImportError:
+        raise ImportError(
+            "pandas is required for metadata table export. "
+            "Install with: pip install pandas"
+        )
+    return pd
+
+
+def _utc_to_iso(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _empty_metadata_row() -> dict:
+    row = {}
+    for col in METADATA_TABLE_COLUMNS:
+        row[col] = np.nan if col in _NUMERIC_METADATA_COLUMNS else None
+    return row
+
+
+def _metadata_scalar(value):
+    """Normalize metadata values to plain scalars safe for pandas/xarray IO."""
+    if value is None:
+        return None
+
+    if isinstance(value, (str, int, float, bool, np.integer, np.floating)):
+        return value
+
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+
+    if isinstance(value, np.datetime64):
+        return str(value)
+
+    try:
+        if np.isnan(value):
+            return None
+    except Exception:
+        pass
+
+    try:
+        return str(value)
+    except Exception:
+        pass
+    try:
+        return repr(value)
+    except Exception:
+        return f"<{type(value).__name__}>"
+
+
+def _inventory_to_metadata_rows(inventory) -> dict[str, dict]:
+    if inventory is None:
+        return {}
+
+    rows = {}
+    for network in inventory.networks:
+        for station in network.stations:
+            for channel in station.channels:
+                loc = channel.location_code or ""
+                channel_id = f"{network.code}.{station.code}.{loc}.{channel.code}"
+                response = getattr(channel, "response", None)
+                sensitivity = (
+                    getattr(response, "instrument_sensitivity", None)
+                    if response is not None
+                    else None
+                )
+                sensor = getattr(channel, "sensor", None)
+                rows[channel_id] = {
+                    "latitude": getattr(channel, "latitude", station.latitude),
+                    "longitude": getattr(channel, "longitude", station.longitude),
+                    "elevation_m": getattr(channel, "elevation", station.elevation),
+                    "depth_m": getattr(channel, "depth", np.nan),
+                    "azimuth_deg": getattr(channel, "azimuth", np.nan),
+                    "dip_deg": getattr(channel, "dip", np.nan),
+                    "sensor_description": (
+                        getattr(sensor, "description", None) if sensor else None
+                    ),
+                    "scale": getattr(sensitivity, "value", np.nan),
+                    "scale_freq": getattr(sensitivity, "frequency", np.nan),
+                    "scale_units": (
+                        getattr(sensitivity, "input_units", None)
+                        if sensitivity is not None
+                        else None
+                    ),
+                    "station_start": _utc_to_iso(getattr(station, "start_date", None)),
+                    "station_end": _utc_to_iso(getattr(station, "end_date", None)),
+                }
+                rows[channel_id] = {
+                    key: _metadata_scalar(value)
+                    for key, value in rows[channel_id].items()
+                }
+    return rows
+
+
+def bundle_to_metadata_table(bundle: TraceBundle, inventory=None):
+    """Export canonical per-channel metadata as a pandas DataFrame.
+
+    Parameters
+    ----------
+    bundle : TraceBundle
+        Parsed waveform data.
+    inventory : obspy.Inventory, optional
+        Station/response metadata to merge onto waveform-derived rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per NSLC channel product.
+    """
+    pd = _require_pandas()
+
+    inv_rows = _inventory_to_metadata_rows(inventory)
+    rows = []
+    for channel_id, meta in sorted(bundle.metadata().items()):
+        row = _empty_metadata_row()
+        row.update(
+            {
+                "channel_id": channel_id,
+                "network": meta.network,
+                "station": meta.station,
+                "location": meta.location,
+                "channel": meta.channel,
+                "starttime_ns": meta.starttime_ns,
+                "endtime_ns": meta.endtime_ns,
+                "sampling_rate": meta.sampling_rate,
+                "total_samples": meta.total_samples,
+                "num_segments": meta.num_segments,
+                "num_gaps": meta.num_gaps,
+                "total_gap_duration_s": meta.total_gap_duration_s,
+                "encoding": meta.encoding,
+            }
+        )
+        row.update(inv_rows.get(channel_id, {}))
+        row = {key: _metadata_scalar(value) for key, value in row.items()}
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=METADATA_TABLE_COLUMNS)
+
+
+def metadata_table_to_dict(df) -> dict[str, dict]:
+    """Convert a canonical metadata table into a dictionary keyed by channel ID."""
+    pd = _require_pandas()
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Expected pandas.DataFrame, got {type(df)}")
+
+    out = {}
+    for row in df.to_dict(orient="records"):
+        channel_id = row["channel_id"]
+        cleaned = {}
+        for key, value in row.items():
+            cleaned[key] = None if pd.isna(value) else value
+        out[channel_id] = cleaned
+    return out
+
+
+def _coerce_metadata_table(metadata, metadata_mode="table"):
+    pd = _require_pandas()
+
+    if isinstance(metadata, pd.DataFrame):
+        return metadata.reindex(columns=METADATA_TABLE_COLUMNS)
+
+    if metadata_mode == "dict" and isinstance(metadata, dict):
+        rows = []
+        for channel_id, values in metadata.items():
+            row = _empty_metadata_row()
+            row["channel_id"] = channel_id
+            row.update(values)
+            rows.append(row)
+        return pd.DataFrame(rows, columns=METADATA_TABLE_COLUMNS)
+
+    if isinstance(metadata, dict):
+        rows = []
+        for channel_id, values in metadata.items():
+            row = _empty_metadata_row()
+            row["channel_id"] = channel_id
+            row.update(values)
+            rows.append(row)
+        return pd.DataFrame(rows, columns=METADATA_TABLE_COLUMNS)
+
+    raise TypeError("metadata must be a pandas.DataFrame or a dict keyed by channel_id")
+
+
+def _metadata_table_to_xarray(df):
+    pd = _require_pandas()
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Expected pandas.DataFrame, got {type(df)}")
+
+    try:
+        import xarray as xr
+    except ImportError:
+        raise ImportError("xarray required: pip install xarray")
+
+    row_index = np.arange(len(df), dtype=np.int64)
+    data_vars = {}
+    for col in METADATA_TABLE_COLUMNS:
+        series = df[col] if col in df.columns else None
+        if col in _NUMERIC_METADATA_COLUMNS:
+            values = (
+                series.astype(np.float64).to_numpy()
+                if series is not None
+                else np.full(len(df), np.nan, dtype=np.float64)
+            )
+        elif col in {
+            "starttime_ns",
+            "endtime_ns",
+            "total_samples",
+            "num_segments",
+            "num_gaps",
+        }:
+            values = (
+                series.astype("Int64").fillna(-1).to_numpy(dtype=np.int64)
+                if series is not None
+                else np.full(len(df), -1, dtype=np.int64)
+            )
+        else:
+            values = np.asarray(
+                [
+                    "" if series is None or pd.isna(v) else str(v)
+                    for v in (
+                        series.tolist() if series is not None else [None] * len(df)
+                    )
+                ],
+                dtype=str,
+            )
+        data_vars[col] = xr.DataArray(values, dims=["row"], coords={"row": row_index})
+    return xr.Dataset(data_vars)
+
+
+def write_metadata_csv(df, path: str):
+    """Write canonical metadata to CSV.
+
+    If ``path`` is a `.csv` file, write directly there.
+    If ``path`` is a `.zarr` store, write `metadata.csv` next to it.
+    Otherwise treat ``path`` as a directory and write `metadata.csv` inside it.
+    """
+    pd = _require_pandas()
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Expected pandas.DataFrame, got {type(df)}")
+
+    out = Path(path)
+    if out.suffix == ".csv":
+        csv_path = out
+    elif out.suffix == ".zarr":
+        csv_path = out.parent / "metadata.csv"
+    else:
+        csv_path = out / "metadata.csv"
+
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(csv_path, index=False)
+    return str(csv_path)
+
+
 # --------------------------------------------------------------------------- #
 #  Output: xarray Dataset (optional)
 # --------------------------------------------------------------------------- #
@@ -445,7 +747,14 @@ def bundle_to_xarray(bundle: TraceBundle, merge_segments=True):
 # --------------------------------------------------------------------------- #
 
 
-def to_zarr(ds_or_bundle, store: str, mode="w", **zarr_kwargs):
+def to_zarr(
+    ds_or_bundle,
+    store: str,
+    mode="w",
+    metadata=None,
+    metadata_mode="table",
+    **zarr_kwargs,
+):
     """
     Write to zarr store.  Accepts TraceBundle or xarray.Dataset.
     **Requires xarray + zarr.**
@@ -455,13 +764,45 @@ def to_zarr(ds_or_bundle, store: str, mode="w", **zarr_kwargs):
     except ImportError:
         raise ImportError("xarray + zarr required: pip install xarray zarr")
 
+    metadata_df = None
     if isinstance(ds_or_bundle, TraceBundle):
         ds = bundle_to_xarray(ds_or_bundle)
+        if metadata is None:
+            metadata_df = bundle_to_metadata_table(ds_or_bundle)
     elif isinstance(ds_or_bundle, xr.Dataset):
         ds = ds_or_bundle
     else:
         raise TypeError(
             f"Expected TraceBundle or xarray.Dataset, got {type(ds_or_bundle)}"
         )
-    ds.to_zarr(store, mode=mode, **zarr_kwargs)
+
+    if metadata is not None:
+        metadata_df = _coerce_metadata_table(metadata, metadata_mode=metadata_mode)
+
+    ds_to_write = ds.copy(deep=False)
+    root_attrs = dict(ds_to_write.attrs)
+    root_attrs.update(
+        {
+            "seisfetch_schema_version": "1",
+            "seisfetch_created_at": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+    )
+    if metadata_df is not None:
+        root_attrs["seisfetch_metadata_format"] = "channel_table.v1"
+        root_attrs["seisfetch_metadata_rows"] = int(len(metadata_df))
+    ds_to_write.attrs = root_attrs
+    ds_to_write.to_zarr(store, mode=mode, **zarr_kwargs)
+
+    if metadata_df is not None:
+        metadata_ds = _metadata_table_to_xarray(metadata_df.reset_index(drop=True))
+        metadata_ds.attrs.update(
+            {
+                "seisfetch_metadata_format": "channel_table.v1",
+                "seisfetch_created_at": root_attrs["seisfetch_created_at"],
+            }
+        )
+        metadata_ds.to_zarr(store, group="metadata/channel_table", mode="a")
+
     logger.info("wrote zarr store to %s", store)
