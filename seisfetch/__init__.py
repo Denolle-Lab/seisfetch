@@ -10,6 +10,7 @@ S3 archives:
   NCEDC       s3://ncedc-pds                    (us-east-2)
 
 Optional outputs:
+  pandas  → bundle_to_metadata_table(), write_metadata_csv()
   obspy   → get_waveforms(), bundle_to_obspy(), get_availability()
   xarray  → get_xarray(), bundle_to_xarray()
   zarr    → to_zarr()
@@ -33,10 +34,13 @@ from seisfetch.convert import (
     TraceArray,
     TraceBundle,
     bundle_to_inventory,
+    bundle_to_metadata_table,
     bundle_to_obspy,
     bundle_to_xarray,
+    metadata_table_to_dict,
     parse_mseed,
     to_zarr,
+    write_metadata_csv,
 )
 from seisfetch.fdsn import (
     FDSNClient,
@@ -74,8 +78,11 @@ __all__ = [
     "ChannelMetadata",
     "bundle_to_obspy",
     "bundle_to_inventory",
+    "bundle_to_metadata_table",
     "bundle_to_xarray",
+    "metadata_table_to_dict",
     "to_zarr",
+    "write_metadata_csv",
     "route_network",
     "BulkRequest",
     "BulkResult",

@@ -363,7 +363,10 @@ class S3AuthClient:
         try:
             from earthscope_sdk import EarthScopeClient
         except ImportError:
-            raise ImportError("earthscope-sdk required: pip install earthscope-sdk")
+            raise ImportError(
+                "earthscope-sdk is included in the auth extra. "
+                'Install auth support with: pip install -e ".[auth]" earthscope-cli'
+            )
         es = EarthScopeClient()
         creds = es.user.get_aws_credentials()
         return boto3.Session(

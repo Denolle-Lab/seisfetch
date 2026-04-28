@@ -73,3 +73,64 @@ def make_gapped_mseed(
         tl.to_file(f.name, format_version=2, max_reclen=4096)
         f.seek(0)
         return f.read()
+
+
+def make_inventory(
+    network="IU",
+    station="ANMO",
+    location="00",
+    channels=("BHZ",),
+):
+    """Build a minimal ObsPy Inventory for metadata merge tests."""
+    from obspy import UTCDateTime
+    from obspy.core.inventory import (
+        Channel,
+        Equipment,
+        Inventory,
+        Network,
+        Response,
+        Site,
+        Station,
+    )
+    from obspy.core.inventory.response import InstrumentSensitivity
+
+    channel_objs = []
+    for cha in channels:
+        response = Response(
+            instrument_sensitivity=InstrumentSensitivity(
+                value=588000000.0,
+                frequency=0.02,
+                input_units="M/S",
+                output_units="COUNTS",
+            )
+        )
+        channel_obj = Channel(
+            code=cha,
+            location_code=location,
+            latitude=34.9459,
+            longitude=-106.4572,
+            elevation=1850.0,
+            depth=2.0,
+            azimuth=0.0,
+            dip=-90.0,
+            sample_rate=100.0,
+            sensor=Equipment(description="Trillium Compact"),
+            response=response,
+            start_date=UTCDateTime("2024-01-01T00:00:00"),
+            end_date=UTCDateTime("2024-12-31T23:59:59"),
+        )
+        channel_objs.append(channel_obj)
+
+    station_obj = Station(
+        code=station,
+        latitude=34.9459,
+        longitude=-106.4572,
+        elevation=1850.0,
+        creation_date=UTCDateTime("2020-01-01T00:00:00"),
+        site=Site(name="Test Site"),
+        channels=channel_objs,
+        start_date=UTCDateTime("2020-01-01T00:00:00"),
+        end_date=UTCDateTime("2025-01-01T00:00:00"),
+    )
+    network_obj = Network(code=network, stations=[station_obj])
+    return Inventory(networks=[network_obj], source="tests")
