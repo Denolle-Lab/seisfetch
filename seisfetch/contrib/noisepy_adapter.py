@@ -279,6 +279,22 @@ def trim_pad0_np(
     return out, t0_ns + int(round(i0 * dt_ns))
 
 
+def segment_interpolate_np(sig1: np.ndarray, nfric: float) -> np.ndarray:
+    """Port of noisepy ``segment_interpolate`` (numba hat-function interp).
+
+    Shifts samples onto integer multiples of the sampling interval when the
+    trace start time falls between sample points. The formula mirrors
+    noisepy verbatim, including its edge handling.
+    """
+    sig1 = np.asarray(sig1, dtype=np.float32)
+    sig2 = np.empty_like(sig1)
+    sig2[0] = sig1[0]
+    sig2[-1] = sig1[-1]
+    # noisepy: sig2[ii] = (1-nfric)*sig1[ii+1] + nfric*sig1[ii]
+    sig2[1:-1] = np.float32(1 - nfric) * sig1[2:] + np.float32(nfric) * sig1[1:-1]
+    return sig2
+
+
 def preprocess_raw_np(
     segments: list[TraceArray],
     start_ns: int,
@@ -338,6 +354,16 @@ def preprocess_raw_np(
     if abs(sampling_rate - sps) > 1e-4:
         merged = resample_fourier_np(merged, sps, sampling_rate)
         sr = sampling_rate
+        # sub-sample start alignment — noisepy runs this only inside the
+        # resample branch (noise_module.py:158-167), so we do too
+        delta = 1.0 / sr
+        micro = (t0_ns % 1_000_000_000) / 1000.0
+        fric = micro % (delta * 1e6)
+        if fric > 1e-4:
+            merged = segment_interpolate_np(
+                np.float32(merged), float(fric / (delta * 1e6))
+            )
+            t0_ns -= int(round(fric * 1000))
 
     out, out_t0_ns = trim_pad0_np(merged, t0_ns, sr, start_ns, end_ns)
     return NpChannelData(

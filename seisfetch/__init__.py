@@ -18,16 +18,6 @@ Optional outputs:
 See THIRD_PARTY_NOTICES.md for full attribution and licenses.
 """
 
-from seisfetch.bulk import (
-    BulkRequest,
-    BulkResult,
-    BulkSummary,
-    fetch_bulk_numpy,
-    fetch_bulk_raw,
-    requests_from_csv,
-    requests_from_list,
-)
-from seisfetch.client import SeisfetchClient
 from seisfetch.convert import (
     ChannelMetadata,
     GapInfo,
@@ -42,14 +32,41 @@ from seisfetch.convert import (
     to_zarr,
     write_metadata_csv,
 )
-from seisfetch.fdsn import (
-    FDSNClient,
-    FDSNMultiClient,
-    ObspyFDSNClient,
-    list_providers,
-    resolve_provider,
-)
-from seisfetch.s3 import S3AuthClient, S3OpenClient, route_network
+
+# Transport layers (boto3, httpx, ...) are imported lazily via PEP 562 so
+# `import seisfetch` stays fast on cold starts (Lambda/containers): parsing
+# needs only pymseed+numpy.
+_LAZY = {
+    "BulkRequest": "seisfetch.bulk",
+    "BulkResult": "seisfetch.bulk",
+    "BulkSummary": "seisfetch.bulk",
+    "fetch_bulk_numpy": "seisfetch.bulk",
+    "fetch_bulk_raw": "seisfetch.bulk",
+    "requests_from_csv": "seisfetch.bulk",
+    "requests_from_list": "seisfetch.bulk",
+    "SeisfetchClient": "seisfetch.client",
+    "FDSNClient": "seisfetch.fdsn",
+    "FDSNMultiClient": "seisfetch.fdsn",
+    "ObspyFDSNClient": "seisfetch.fdsn",
+    "list_providers": "seisfetch.fdsn",
+    "resolve_provider": "seisfetch.fdsn",
+    "S3AuthClient": "seisfetch.s3",
+    "S3OpenClient": "seisfetch.s3",
+    "route_network": "seisfetch.s3",
+}
+
+
+def __getattr__(name):
+    if name in _LAZY:
+        import importlib
+
+        return getattr(importlib.import_module(_LAZY[name]), name)
+    raise AttributeError(f"module 'seisfetch' has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(list(globals()) + list(_LAZY))
+
 
 # Earth2Studio adapters — lazy import (requires earth2studio + xarray)
 try:
