@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore import UNSIGNED
@@ -279,13 +279,16 @@ class S3OpenClient:
         def _dl(args):
             return self._fetch_object(*args)[0]
 
+        # Collect in SUBMISSION order (day-major, channel-minor as built
+        # above) so the returned byte stream is deterministic; as_completed
+        # ordering varies run to run.
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(_dl, k): k for k in keys}
-            for f in as_completed(futs):
+            futs = [(pool.submit(_dl, k), k) for k in keys]
+            for f, k in futs:
                 try:
                     chunks.append(f.result())
                 except Exception:
-                    logger.warning("fetch failed: %s", futs[f][1], exc_info=True)
+                    logger.warning("fetch failed: %s", k[1], exc_info=True)
 
         return b"".join(chunks)
 
@@ -403,9 +406,10 @@ class S3AuthClient:
             raw, _ = self._fetch_day(network, station, yr, doy, suffix=suffix)
             return raw
 
+        # submission (day) order, not as_completed — deterministic output
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(_dl, d): d for d in days}
-            for f in as_completed(futs):
+            futs = [pool.submit(_dl, d) for d in days]
+            for f in futs:
                 try:
                     chunks.append(f.result())
                 except Exception:

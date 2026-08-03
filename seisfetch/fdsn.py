@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from seisfetch.utils import to_epoch, to_isoformat
 
@@ -322,15 +322,16 @@ class FDSNMultiClient:
                 network, station, location, channel, starttime, endtime, **kwargs
             )
 
+        # provider (submission) order, not as_completed — deterministic output
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(_fetch, c): c for c in self._clients}
-            for f in as_completed(futs):
+            futs = [(pool.submit(_fetch, c), c) for c in self._clients]
+            for f, c in futs:
                 try:
                     raw = f.result()
                     if raw:
                         chunks.append(raw)
                 except Exception:
-                    logger.warning("[multi] %s failed", futs[f].provider, exc_info=True)
+                    logger.warning("[multi] %s failed", c.provider, exc_info=True)
         return b"".join(chunks)
 
     def close(self):

@@ -251,6 +251,9 @@ def fetch_bulk_raw(
             if progress:
                 progress(completed, total, result)
 
+    # deterministic result order (submission order); progress above stays live
+    order = {id(r): i for i, r in enumerate(requests)}
+    summary.results.sort(key=lambda res: order.get(id(res.request), len(order)))
     return summary
 
 
@@ -311,4 +314,7 @@ def fetch_bulk_numpy(
             if progress:
                 progress(completed, total, result)
 
+    # deterministic result order (submission order); progress above stays live
+    order = {id(r): i for i, r in enumerate(requests)}
+    summary.results.sort(key=lambda res: order.get(id(res.request), len(order)))
     return summary

@@ -22,7 +22,9 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "boto3>=1.28",
-    "pymseed>=0.2",
+    # upper bound: parse_mseed uses MS3TraceList/recordlist plus a guarded
+    # private-API sid fallback; tested against 0.6-0.8. Raise only with tests.
+    "pymseed>=0.6,<0.9",
 ]
 
 [project.optional-dependencies]
