@@ -216,7 +216,18 @@ class TraceBundle:
         for k, segs in segs_by_id.items():
             sr = segs[0].sampling_rate
             t0_ns = segs[0].starttime_ns
-            dtype = np.result_type(segs[0].data.dtype, type(fill_value))
+            # keep the data dtype when fill_value is exactly representable
+            # in it (0 in float32 stays float32 — obspy merge semantics);
+            # promote otherwise (NaN into int data -> float64)
+            data_dtype = segs[0].data.dtype
+            cast = np.asarray(fill_value).astype(data_dtype, casting="unsafe")
+            try:
+                fits = bool(cast == fill_value) or (
+                    np.isnan(fill_value) and np.isnan(cast)
+                )
+            except (TypeError, ValueError):
+                fits = False
+            dtype = data_dtype if fits else np.result_type(data_dtype, np.float64)
             npts = int(round((segs[-1].endtime_ns - t0_ns) * sr / 1e9)) + 1
             arr = np.full(npts, fill_value, dtype=dtype)
             for s in segs:

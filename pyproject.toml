@@ -29,6 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 obspy = ["obspy>=1.4"]
+noisepy = ["scipy>=1.10"]  # contrib.noisepy_adapter: numpy ports, no obspy
 fdsn = ["httpx>=0.25"]
 pandas = ["pandas>=2.0"]
 xarray = ["xarray>=2023.1"]

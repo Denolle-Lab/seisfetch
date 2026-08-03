@@ -10592,12 +10592,13 @@ packages:
 - pypi: ./
   name: seisfetch
   version: 0.2.0
-  sha256: 1f36282597226e27db845040e4e67b194955820ca3f97736d904c229bd818f4d
+  sha256: afe037347d0ccb784483eef075c8a54bb597fe61e2bec8ae0bbfb79254fb870d
   requires_dist:
   - numpy>=1.24
   - boto3>=1.28
   - pymseed>=0.6,<0.9
   - obspy>=1.4 ; extra == 'obspy'
+  - scipy>=1.10 ; extra == 'noisepy'
   - httpx>=0.25 ; extra == 'fdsn'
   - pandas>=2.0 ; extra == 'pandas'
   - xarray>=2023.1 ; extra == 'xarray'
