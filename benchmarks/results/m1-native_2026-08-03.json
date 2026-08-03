@@ -8,111 +8,103 @@
     "platform": "macOS-15.7.4-arm64-arm-64bit",
     "pymseed": "0.8.1",
     "python": "3.12.13",
-    "seisfetch_sha": "6d7da61",
+    "seisfetch_sha": "72b824a",
     "tag": "m1-native"
   },
   "suites": {
     "cold_import": {
       "obspy": {
-        "mean_s": 0.338,
-        "min_s": 0.2363
+        "mean_s": 0.1736,
+        "min_s": 0.1303
       },
       "seisfetch": {
-        "mean_s": 0.1642,
-        "min_s": 0.097
-      }
-    },
-    "footprint": {
-      "obspy": {
-        "installed_mb": 311.4
-      },
-      "seisfetch_core": {
-        "installed_mb": 80.0
+        "mean_s": 0.0843,
+        "min_s": 0.0678
       }
     },
     "memory": {
       "bytes": 11255808,
       "file": "tests/bench.mseed",
       "obspy": {
-        "peak_rss_mb": 152.8,
-        "tracemalloc_peak_mb": 52.026
+        "peak_rss_mb": 139.7,
+        "tracemalloc_peak_mb": 52.028
       },
       "seisfetch": {
-        "peak_rss_mb": 139.7,
-        "tracemalloc_peak_mb": 27.672
+        "peak_rss_mb": 74.4,
+        "tracemalloc_peak_mb": 27.675
       }
     },
     "parse": {
       "tests/bench.mseed": {
         "bytes": 11255808,
         "obspy": {
-          "mb_per_s": 243.8,
-          "mean_ms": 52.454,
-          "min_ms": 46.164
+          "mb_per_s": 302.9,
+          "mean_ms": 38.063,
+          "min_ms": 37.162
         },
         "pymseed_bare": {
-          "mb_per_s": 345.6,
-          "mean_ms": 51.546,
-          "min_ms": 32.572
+          "mb_per_s": 453.0,
+          "mean_ms": 28.127,
+          "min_ms": 24.848
         },
         "seisfetch": {
-          "mb_per_s": 291.1,
-          "mean_ms": 57.833,
-          "min_ms": 38.67
+          "mb_per_s": 527.1,
+          "mean_ms": 35.834,
+          "min_ms": 21.356
         }
       },
       "tests/fixtures/enc_float32.mseed": {
         "bytes": 12288,
         "obspy": {
-          "mb_per_s": 21.4,
-          "mean_ms": 0.593,
-          "min_ms": 0.575
+          "mb_per_s": 27.7,
+          "mean_ms": 0.497,
+          "min_ms": 0.444
         },
         "pymseed_bare": {
-          "mb_per_s": 1203.8,
-          "mean_ms": 0.012,
-          "min_ms": 0.01
+          "mb_per_s": 1528.0,
+          "mean_ms": 0.009,
+          "min_ms": 0.008
         },
         "seisfetch": {
-          "mb_per_s": 595.8,
-          "mean_ms": 0.037,
-          "min_ms": 0.021
+          "mb_per_s": 828.4,
+          "mean_ms": 0.017,
+          "min_ms": 0.015
         }
       },
       "tests/fixtures/gap_3seg.mseed": {
         "bytes": 24576,
         "obspy": {
-          "mb_per_s": 35.4,
-          "mean_ms": 0.873,
-          "min_ms": 0.694
+          "mb_per_s": 48.7,
+          "mean_ms": 0.521,
+          "min_ms": 0.504
         },
         "pymseed_bare": {
-          "mb_per_s": 900.5,
-          "mean_ms": 0.03,
-          "min_ms": 0.027
+          "mb_per_s": 1055.1,
+          "mean_ms": 0.024,
+          "min_ms": 0.023
         },
         "seisfetch": {
-          "mb_per_s": 517.8,
-          "mean_ms": 0.071,
-          "min_ms": 0.047
+          "mb_per_s": 705.5,
+          "mean_ms": 0.038,
+          "min_ms": 0.035
         }
       },
       "tests/test_local.mseed": {
         "bytes": 11255808,
         "obspy": {
-          "mb_per_s": 258.9,
-          "mean_ms": 44.685,
-          "min_ms": 43.481
+          "mb_per_s": 315.5,
+          "mean_ms": 36.525,
+          "min_ms": 35.677
         },
         "pymseed_bare": {
-          "mb_per_s": 345.8,
-          "mean_ms": 33.149,
-          "min_ms": 32.547
+          "mb_per_s": 401.9,
+          "mean_ms": 29.959,
+          "min_ms": 28.006
         },
         "seisfetch": {
-          "mb_per_s": 286.6,
-          "mean_ms": 40.758,
-          "min_ms": 39.275
+          "mb_per_s": 515.1,
+          "mean_ms": 22.202,
+          "min_ms": 21.852
         }
       }
     }

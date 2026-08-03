@@ -43,7 +43,12 @@ PARSE_FILES = [
 
 
 def _time_trials(fn, n_trials: int) -> list[float]:
-    """Run ``fn`` ``n_trials`` times, return elapsed seconds per trial."""
+    """Run ``fn`` ``n_trials`` times, return elapsed seconds per trial.
+
+    One untimed warmup call first: lazy imports, JIT'd allocator pools, and
+    first-touch page faults belong to neither stack's steady state.
+    """
+    fn()
     times = []
     for _ in range(n_trials):
         t0 = time.perf_counter()

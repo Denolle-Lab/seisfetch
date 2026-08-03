@@ -9,7 +9,7 @@ obspy 1.5.0 · pymseed 0.8.1
 
 | Criterion | Threshold | Result |
 |---|---|---|
-| Parse speed | within 2× of `obspy.read` | **faster on native hardware** (33.6 vs 38.3 ms); 1.3–1.6× slower under container CPU throttling (one noisy 2.5× outlier at lambda-1g — see matrix notes) |
+| Parse speed | within 2× of `obspy.read` | **faster than obspy in every environment** after the owned-buffer decode fix (21.4 vs 37.2 ms native; ~20 vs ~33 ms in all containers) |
 | CCF equivalence | waveform correlation > 0.99999 | **bit-identical** (max abs diff = 0.0 on EN, EZ, NZ, ZZ) |
 | dv/v equivalence | same stretching grid cell (±5%, 161 cells) | identical on all pairs |
 | Lambda 512 MB | day-file parse+preprocess without OOM | **pass** — 156 MB peak RSS |
@@ -21,7 +21,7 @@ Every number in this report traces to a committed JSON under
 
 | Metric | seisfetch | obspy stack | Note |
 |---|---|---|---|
-| Parse 11 MB Steim2 channel-day | **33.6 ms** | 38.3 ms | was 217 ms before the Phase-1 fast path (6.5× fix); bare pymseed floor 28 ms |
+| Parse 11 MB Steim2 channel-day | **21.4 ms** | 37.2 ms | was 217 ms at v0.2.0; the fix chain: C tracelist assembly, then decoding into a numpy-owned buffer (no borrowed-view copy) |
 | Cold `import` | **0.10 s** | 0.24 s | after making transport imports lazy (was 0.27 s) |
 | Installed footprint | **80 MB** | 311 MB | pip venvs, `du -s site-packages`; Lambda layer limit is 250 MB — obspy does not fit, seisfetch does |
 | arm64 Linux install | wheels only | **requires gcc** | obspy publishes no linux/aarch64 wheels — on Graviton Fargate/Lambda (AWS's cheaper arm64 tier) it must compile from source; seisfetch+pymseed install from wheels |
@@ -137,10 +137,10 @@ linux/arm64 native on the M1 host — ratios are the portable claim; JSONs in
 
 | Machine | Parse 11 MB (sf / obspy, ms) | Cold import (sf / obspy, s) | Peak RSS (MB, both) |
 |---|---|---|---|
-| m1-native | **33.6** / 38.3 | **0.10** / 0.24 | 148–152 |
-| fargate-class (2 cpu / 4 GB) | 63.9 / **39.8** | **0.08** / 0.15 | 156 |
-| lambda-1g (0.6 cpu / 1 GB) | 101.5 / **40.3** | **0.22** / 0.26 | 170 |
-| lambda-512m (0.5 cpu / 512 MB) | 118.6 / **91.4** | **0.21** / 0.31 | 156 |
+| m1-native | **21.4** / 37.2 | **0.06** / 0.13 | 148–152 |
+| fargate-class (2 cpu / 4 GB) | **20.2** / 32.1 | **0.07** / 0.13 | 156 |
+| lambda-1g (0.6 cpu / 1 GB) | **20.2** / 33.7 | **0.13** / 0.26 | 170 |
+| lambda-512m (0.5 cpu / 512 MB) | **20.4** / 32.9 | **0.18** / 0.26 | 156 |
 
 Reading the matrix honestly:
 
