@@ -1,0 +1,113 @@
+{
+  "machine": {
+    "container_limits": "0.6cpu/1g",
+    "cpu_count": 5,
+    "machine": "aarch64",
+    "numpy": "2.5.1",
+    "obspy": "1.5.0",
+    "platform": "Linux-5.15.49-linuxkit-aarch64-with-glibc2.41",
+    "pymseed": "0.8.1",
+    "python": "3.12.13",
+    "seisfetch_sha": "unknown",
+    "tag": "lambda-1g"
+  },
+  "suites": {
+    "cold_import": {
+      "obspy": {
+        "mean_s": 0.2783,
+        "min_s": 0.2642
+      },
+      "seisfetch": {
+        "mean_s": 0.2243,
+        "min_s": 0.2208
+      }
+    },
+    "memory": {
+      "bytes": 11255808,
+      "file": "tests/bench.mseed",
+      "obspy": {
+        "peak_rss_mb": 169.5,
+        "tracemalloc_peak_mb": 51.994
+      },
+      "seisfetch": {
+        "peak_rss_mb": 169.5,
+        "tracemalloc_peak_mb": 27.672
+      }
+    },
+    "parse": {
+      "tests/bench.mseed": {
+        "bytes": 11255808,
+        "obspy": {
+          "mb_per_s": 279.2,
+          "mean_ms": 79.989,
+          "min_ms": 40.315
+        },
+        "pymseed_bare": {
+          "mb_per_s": 116.5,
+          "mean_ms": 109.726,
+          "min_ms": 96.61
+        },
+        "seisfetch": {
+          "mb_per_s": 110.9,
+          "mean_ms": 119.679,
+          "min_ms": 101.46
+        }
+      },
+      "tests/fixtures/enc_float32.mseed": {
+        "bytes": 12288,
+        "obspy": {
+          "mb_per_s": 25.7,
+          "mean_ms": 0.511,
+          "min_ms": 0.479
+        },
+        "pymseed_bare": {
+          "mb_per_s": 1213.6,
+          "mean_ms": 0.012,
+          "min_ms": 0.01
+        },
+        "seisfetch": {
+          "mb_per_s": 655.4,
+          "mean_ms": 0.036,
+          "min_ms": 0.019
+        }
+      },
+      "tests/fixtures/gap_3seg.mseed": {
+        "bytes": 24576,
+        "obspy": {
+          "mb_per_s": 38.6,
+          "mean_ms": 7.828,
+          "min_ms": 0.637
+        },
+        "pymseed_bare": {
+          "mb_per_s": 862.3,
+          "mean_ms": 0.031,
+          "min_ms": 0.028
+        },
+        "seisfetch": {
+          "mb_per_s": 529.0,
+          "mean_ms": 0.081,
+          "min_ms": 0.046
+        }
+      },
+      "tests/test_local.mseed": {
+        "bytes": 11255808,
+        "obspy": {
+          "mb_per_s": 273.8,
+          "mean_ms": 67.767,
+          "min_ms": 41.114
+        },
+        "pymseed_bare": {
+          "mb_per_s": 125.2,
+          "mean_ms": 101.579,
+          "min_ms": 89.868
+        },
+        "seisfetch": {
+          "mb_per_s": 134.6,
+          "mean_ms": 113.457,
+          "min_ms": 83.641
+        }
+      }
+    }
+  },
+  "timestamp": "2026-08-03"
+}
