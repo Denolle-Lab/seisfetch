@@ -500,16 +500,38 @@ def parse_mseed(raw: bytes, collect_flags: bool = False) -> TraceBundle:
 
 
 def _parse_tracelist(raw: bytes, collect_flags: bool) -> TraceBundle:
-    """Fast path: libmseed assembles contiguous segments in C."""
+    """Fast path: libmseed assembles contiguous segments in C.
+
+    The trace list is built with ``record_list=True`` but ``unpack_data=False``:
+    libmseed parses headers and links per-segment record lists in C (cheap),
+    then each segment is decoded directly into a numpy-owned array via
+    ``create_numpy_array_from_recordlist()`` (libmseed's
+    ``mstl3_unpack_recordlist`` writing into a caller buffer).
+
+    Compared with the previous ``unpack_data=True`` + ``np_datasamples.copy()``
+    approach this does ONE big allocation per segment instead of two (libmseed
+    internal sample buffer + numpy copy) and no memcpy.  On an 11 MB Steim2
+    channel-day this is ~30% faster natively and ~2.5x faster in a
+    cgroup-limited container, where the extra 35 MB allocation + copy cost
+    ~27 ms of page-fault time (see benchmarks/profile_parse.py).
+
+    ``raw`` must stay alive until decoding finishes — the record list holds
+    pointers into it; that is guaranteed here because decoding completes
+    before this function returns.
+    """
     from pymseed import MS3TraceList
 
     traces: list[TraceArray] = []
-    tl = MS3TraceList.from_buffer(raw, unpack_data=True, record_list=True)
+    tl = MS3TraceList.from_buffer(raw, unpack_data=False, record_list=True)
     for tid in tl:
         sid = tid.sourceid  # may raise UnicodeDecodeError -> fallback path
         nslc = None
         for seg in tid:
-            arr = seg.np_datasamples.copy()
+            # Decode straight into a numpy-owned buffer (no C-side copy).
+            # Mixed-encoding segments make libmseed error out here, which
+            # propagates to parse_mseed() and lands in the per-record
+            # fallback — the correct slow path for such data.
+            arr = seg.create_numpy_array_from_recordlist()
             if arr.size == 0:
                 continue
             # first record of the segment carries encoding/flags; the

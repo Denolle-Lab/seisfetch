@@ -147,13 +147,26 @@ Reading the matrix honestly:
 - **Both stacks complete a day-file parse in a 512 MB container** (156 MB
   peak RSS) — the Lambda-feasibility question is settled by memory and by
   *installability* (250 MB layer limit + no aarch64 obspy wheels), not speed.
-- Under CPU throttling seisfetch's parse loses its native-hardware edge
-  (1.3–1.6× slower; the lambda-1g 2.5× point is inconsistent with the
-  tighter 512m limit and is likely scheduler noise in a min-of-5 under a
-  0.6-cpu quota). The tracelist path spends more time in Python per segment
-  (record-list walk + first-record header parse) than obspy's monolithic C
-  reader, and throttled CPUs amplify that. If container parse speed ever
-  matters, the next lever is upstreaming a bulk segment accessor to pymseed.
+- ~~Under CPU throttling seisfetch's parse loses its native-hardware edge~~
+  **Superseded (profiled, fixed).** The container slowdown was *not* "Python
+  time per segment" (there are 1–3 segments) and not CPU throttling — a
+  component micro-profile (`benchmarks/profile_parse.py`) isolated it to the
+  `np_datasamples.copy()` data path: with `unpack_data=True` libmseed decodes
+  into a C-owned sample buffer, and the full-size numpy copy of it (a second
+  ~35 MB allocation, fresh-page memcpy) cost ~1.3 ms native but 27–74 ms
+  under cgroup limits (page-fault/accounting cost in the VM; the C parse
+  itself, 21 ms, does not degrade at all). `parse_mseed` now builds the
+  trace list with `record_list=True, unpack_data=False` and decodes each
+  segment directly into a numpy-owned array
+  (`create_numpy_array_from_recordlist`), i.e. one big allocation instead of
+  two and no memcpy. Post-fix (min of 7): native 21.1 ms vs obspy 34.1;
+  fargate-class (2 cpu/4 GB) 21.1 vs 31.5; lambda-1g 20.5 vs 31.3;
+  lambda-512m 20.5 vs 32.6 — seisfetch is now fastest in every cell, and
+  peak parse RSS dropped from ~92 MB to ~37 MB over baseline. The machine
+  matrix above pre-dates this fix; the parse column is stale pending a
+  matrix re-run. A safe zero-copy / bulk accessor upstream in pymseed would
+  make this the default path for everyone (issue draft:
+  `docs/pymseed-issue-draft.md`).
 - Parse is ~1–3% of a NoisePy station-day budget (the 2026 compute audit
   measured 4.3–6.3 s/station-day), so a 25–60 ms swing is negligible against
   the 145 MB dependency cut and the S3 pull time (seconds per file).
