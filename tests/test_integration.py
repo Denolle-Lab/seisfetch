@@ -67,7 +67,7 @@ class TestS3EarthScope:
             assert t.data.size > 0
             assert t.network == "IU"
             assert t.station == "ANMO"
-        print(f"  IU.ANMO numpy: {len(bundle)} traces, " f"IDs: {bundle.ids}")
+        print(f"  IU.ANMO numpy: {len(bundle)} traces, IDs: {bundle.ids}")
 
     def test_get_numpy_multi_day(self):
         """Download spanning 2 days — merged correctly."""
@@ -339,9 +339,9 @@ class TestCrossDatacenter:
         assert npts_s3 > 0
         assert npts_fdsn > 0
         # Within 1% or 100 samples
-        assert abs(npts_s3 - npts_fdsn) < max(
-            npts_s3 * 0.01, 100
-        ), f"S3 vs FDSN mismatch: {npts_s3} vs {npts_fdsn}"
+        assert abs(npts_s3 - npts_fdsn) < max(npts_s3 * 0.01, 100), (
+            f"S3 vs FDSN mismatch: {npts_s3} vs {npts_fdsn}"
+        )
 
 
 # =========================================================================== #

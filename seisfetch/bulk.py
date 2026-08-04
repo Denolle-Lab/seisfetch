@@ -112,7 +112,7 @@ class BulkSummary:
     def __repr__(self) -> str:
         return (
             f"BulkSummary({self.succeeded}/{self.total} ok, "
-            f"{self.total_bytes/1e6:.1f} MB)"
+            f"{self.total_bytes / 1e6:.1f} MB)"
         )
 
 

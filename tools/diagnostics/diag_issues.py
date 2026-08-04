@@ -43,7 +43,7 @@ data_ob = st_sel[0].data
 n = min(len(data_sorted), len(data_ob))
 diff = data_sorted[:n].astype(np.int64) - data_ob[:n].astype(np.int64)
 max_diff = int(np.max(np.abs(diff)))
-print(f"Sorted concat vs obspy: max_diff={max_diff}, identical={max_diff==0}")
+print(f"Sorted concat vs obspy: max_diff={max_diff}, identical={max_diff == 0}")
 
 # ---- EarthScope: check key format ----------------------------------------
 print("\n" + "=" * 60)

@@ -14,7 +14,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      # pinned to the same ruff as pre-commit/pixi — unpinned CI ruff
+      # drifted ahead and failed format --check on style changes
+      - run: pip install ruff==0.15.9
       - run: ruff check seisfetch tests benchmarks
       - run: ruff format --check seisfetch tests benchmarks
 

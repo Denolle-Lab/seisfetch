@@ -724,8 +724,7 @@ def bundle_to_obspy(bundle: TraceBundle, merge=None):
         from obspy import Stream, Trace, UTCDateTime
     except ImportError:
         raise ImportError(
-            "ObsPy is required for Stream conversion. "
-            "Install with: pip install obspy"
+            "ObsPy is required for Stream conversion. Install with: pip install obspy"
         )
 
     st = Stream()
