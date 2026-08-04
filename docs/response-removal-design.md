@@ -58,8 +58,10 @@ stabilization comes from the target response's own roll-off (damped-oscillator
 `fctoresp(fc, damping=1/√2)`), not from spectral clipping. PZ-only (FIR
 stages never evaluated), sensitivity applied separately, caller
 detrends/tapers. Ported here as `translate_resp_np` +
-`damped_oscillator_response`; band-limited comparison against water-level
-removal agrees to corr > 0.999 in the passband.
+`damped_oscillator_response` (with an optional `pre_filt` applied in the same
+spectral pass as obspy orders it); given the identical taper and band, it
+agrees with water-level removal to ~1e-7 of the spectrum across the passband —
+the pure stabilization difference.
 
 ## Choosing a mode
 

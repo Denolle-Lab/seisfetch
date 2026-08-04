@@ -243,7 +243,15 @@ def evaluate_response(
 
     if mode == "paz":
         pz = next(s for s in resp.stages if isinstance(s, PZStage))
-        h = _pz_shape(pz, freqs, w) * resp.sensitivity
+        shape = _pz_shape(pz, freqs, w)
+        # renormalize at the sensitivity frequency: InstrumentSensitivity is
+        # DEFINED as |H| there, so the composite must equal it exactly at
+        # f_sens. This removes the scalar bias a stale XML A0 would inject
+        # (same principle as evalresp's A0 recompute) and leaves only the
+        # genuine FIR ripple as paz-mode error.
+        f0 = np.asarray([resp.sensitivity_frequency])
+        ref = _pz_shape(pz, f0, 2.0 * np.pi * f0)[0]
+        h = shape / abs(ref) * resp.sensitivity
     elif mode == "full":
         h = np.ones_like(freqs, dtype=complex)
         for s in resp.stages:
@@ -447,6 +455,7 @@ def translate_resp_np(
     mode: str = "paz",
     output: str = "VEL",
     wl: float = np.finfo(np.float32).eps,
+    pre_filt=None,
 ) -> np.ndarray:
     """SeisIO.jl-style response translation (no water level).
 
@@ -454,6 +463,9 @@ def translate_resp_np(
     with ``gamma = max|H_old|^2``. ``target=None`` means flat (full removal,
     SeisIO ``remove_resp``); pass :func:`damped_oscillator_response` values on
     the rfft frequency grid to translate to a common instrument instead.
+    ``pre_filt`` (optional 4-corner raised cosine) is applied to the data
+    spectrum in the same pass, at the same point of the pipeline as obspy's
+    ``remove_response`` — use it when comparing the two one-to-one.
     Caller is responsible for detrend/taper (SeisIO convention).
     """
     x = np.asarray(data, dtype=np.float64)
@@ -468,5 +480,8 @@ def translate_resp_np(
     gamma = mag2.max()
     op = h_new * np.conj(h_old) / (mag2 + wl * gamma)
 
-    spec = np.fft.rfft(x, n=nfft) * op
+    spec = np.fft.rfft(x, n=nfft)
+    if pre_filt is not None:
+        spec *= cosine_sac_taper_np(freqs, pre_filt)
+    spec *= op
     return np.fft.irfft(spec)[:npts]
