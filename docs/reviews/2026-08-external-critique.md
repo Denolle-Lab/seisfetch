@@ -39,6 +39,21 @@ GainStage degradation; degenerate short-segment taper matches obspy
 bit-exactly (was NaN); DEF output and M/S/S units supported. 14 new tests in
 tests/precision/test_response_dirty_metadata.py. All four blockers closed.
 
+**Correctness majors resolved 2026-08-04**: `to_dict(fill_value=)` sizes from
+the max end time and implements obspy merge(method=1) containment policy
+(surrounding trace wins; partial tail overlap still later-wins) — verified
+equal to obspy on the reviewer's reproductions; mixed sampling rates raise a
+typed `MixedSamplingRateError` from `to_dict`/`metadata` with `segments()` as
+the documented escape hatch; the per-record fallback sorts records by start
+time before contiguity merging so out-of-order contiguous records heal
+identically on both parse paths; truncated buffers warn about unparsed
+trailing bytes (128-byte-alignment heuristic gates the walk on the fast
+path); `bundle_to_obspy`/`get_waveforms` default to obspy-read parity (one
+Trace per segment, no masked arrays — `merge=1` restores the old behavior);
+`preprocess_raw_np` refuses sub-sample-offset windows with an instructive
+error instead of silently diverging from the obspy chain. 13 regression
+tests in tests/test_correctness_majors.py.
+
 ---
 
 ## Blockers

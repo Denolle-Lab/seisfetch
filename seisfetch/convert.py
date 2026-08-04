@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from seisfetch.exceptions import MixedSamplingRateError
+
 logger = logging.getLogger(__name__)
 
 METADATA_TABLE_COLUMNS = [
@@ -192,6 +194,10 @@ class TraceBundle:
             ``segments()`` for gap-aware processing.
         """
         segs_by_id = self.segments()
+        for k, segs in segs_by_id.items():
+            rates = {s.sampling_rate for s in segs}
+            if len(rates) > 1:
+                raise MixedSamplingRateError(k, sorted(rates))
         if fill_value is None:
             gap_ids = [k for k, g in self.gaps().items() if g]
             if gap_ids:
@@ -228,11 +234,25 @@ class TraceBundle:
             except (TypeError, ValueError):
                 fits = False
             dtype = data_dtype if fits else np.result_type(data_dtype, np.float64)
-            npts = int(round((segs[-1].endtime_ns - t0_ns) * sr / 1e9)) + 1
+            # span from the MAX end time — a segment fully contained in an
+            # earlier one must not shrink the buffer (crash class from the
+            # 2026-08 critique)
+            end_ns = max(s.endtime_ns for s in segs)
+            npts = int(round((end_ns - t0_ns) * sr / 1e9)) + 1
             arr = np.full(npts, fill_value, dtype=dtype)
+            # obspy merge(method=1, interpolation_samples=0) overlap policy:
+            # partial (tail) overlap -> the later segment overwrites; a
+            # segment FULLY CONTAINED in what has already been placed is
+            # skipped (the surrounding trace wins)
+            cur_end: int | None = None
             for s in segs:
+                if cur_end is not None and s.endtime_ns <= cur_end:
+                    continue
                 i0 = int(round((s.starttime_ns - t0_ns) * sr / 1e9))
-                arr[i0 : i0 + s.npts] = s.data  # later segment overwrites overlap
+                arr[i0 : i0 + s.npts] = s.data
+                cur_end = (
+                    s.endtime_ns if cur_end is None else max(cur_end, s.endtime_ns)
+                )
             out[k] = arr
         return out
 
@@ -364,6 +384,9 @@ class TraceBundle:
         result: dict[str, ChannelMetadata] = {}
 
         for nslc, segs in groups.items():
+            rates = {s.sampling_rate for s in segs}
+            if len(rates) > 1:
+                raise MixedSamplingRateError(nslc, sorted(rates))
             sorted_segs = sorted(segs, key=lambda s: s.starttime_ns)
             first = sorted_segs[0]
             total_samples = sum(s.npts for s in sorted_segs)
@@ -564,17 +587,38 @@ def _parse_tracelist(raw: bytes, collect_flags: bool) -> TraceBundle:
                 )
             )
     traces.sort(key=lambda t: (t.id, t.starttime_ns))
+    # truncated-buffer check: v2/v3 records are >=128-byte aligned, so a
+    # buffer length off that grid means a partial trailing record libmseed
+    # silently skipped. Only then pay for the record-list walk.
+    if len(raw) % 128:
+        try:
+            consumed = 0
+            for tid in tl:
+                for seg in tid:
+                    for entry in seg.recordlist.records():
+                        end = entry.fileoffset + getattr(entry.record, "reclen", 0)
+                        if end > consumed:
+                            consumed = end
+            _warn_if_truncated(len(raw), consumed)
+        except Exception:  # diagnostics must never break parsing
+            pass
     return TraceBundle(traces)
 
 
 def _parse_records(raw: bytes, collect_flags: bool) -> TraceBundle:
-    """Per-record fallback with non-UTF-8 v2 header recovery."""
-    traces: list[TraceArray] = []
-    # per-sid caches: NSLC/encoding are constant within a channel; resolving
-    # them once per sid (not once per record) is a large win on day files
-    # with tens of thousands of records
+    """Per-record fallback with non-UTF-8 v2 header recovery.
+
+    Records are collected per source id and SORTED BY START TIME before
+    contiguity merging, so out-of-order contiguous records heal into one
+    segment exactly as libmseed's trace list does on the fast path (the
+    2026-08 critique demonstrated the two paths could disagree on segment
+    topology — and hence on downstream >100-segment rejection — for the
+    same bytes).
+    """
+    # per-sid caches: NSLC is constant within a channel
     nslc_cache: dict[str, tuple[str, str, str, str]] = {}
-    pending: dict[str, _PendingSegment] = {}
+    per_sid: dict[str, list] = {}
+    consumed = 0
 
     for msr in MS3Record.from_buffer(raw, unpack_data=True):
         # Access sourceid safely — some miniSEED v2 records have non-UTF-8
@@ -587,32 +631,14 @@ def _parse_records(raw: bytes, collect_flags: bool) -> TraceBundle:
                 continue
             logger.debug("Decoded sourceid with latin-1 fallback: %s", sid)
 
+        consumed += getattr(msr, "reclen", 0) or 0
         arr = msr.np_datasamples.copy()
         if arr.size == 0:
             continue
 
-        nslc = nslc_cache.get(sid)
-        if nslc is None:
-            nslc = nslc_cache[sid] = _resolve_nslc(msr, sid)
+        if sid not in nslc_cache:
+            nslc_cache[sid] = _resolve_nslc(msr, sid)
 
-        starttime_ns = msr.starttime
-        samprate = msr.samprate
-
-        seg = pending.get(sid)
-        if seg is not None:
-            # contiguous if within half a sample interval of the expected
-            # next sample, at the same rate
-            tol_ns = 0.5e9 / samprate if samprate > 0 else 0
-            if (
-                seg.sampling_rate == samprate
-                and abs(starttime_ns - seg.expected_next_ns) <= tol_ns
-            ):
-                seg.chunks.append(arr)
-                seg.npts += arr.shape[0]
-                continue
-            traces.append(seg.flush())
-
-        # start a new segment: resolve encoding/flags once per segment
         try:
             enc = msr.encoding_str() or ""
         except Exception:
@@ -626,15 +652,51 @@ def _parse_records(raw: bytes, collect_flags: bool) -> TraceBundle:
                 flags = {}
         else:
             flags = {}
+        per_sid.setdefault(sid, []).append(
+            (msr.starttime, msr.samprate, arr, enc, flags)
+        )
 
-        seg = _PendingSegment(nslc, starttime_ns, samprate, enc, flags)
-        seg.chunks.append(arr)
-        seg.npts = arr.shape[0]
-        pending[sid] = seg
+    _warn_if_truncated(len(raw), consumed)
 
-    traces.extend(seg.flush() for seg in pending.values())
+    traces: list[TraceArray] = []
+    for sid, records in per_sid.items():
+        records.sort(key=lambda r: r[0])
+        seg = None
+        for starttime_ns, samprate, arr, enc, flags in records:
+            if seg is not None:
+                tol_ns = 0.5e9 / samprate if samprate > 0 else 0
+                if (
+                    seg.sampling_rate == samprate
+                    and abs(starttime_ns - seg.expected_next_ns) <= tol_ns
+                ):
+                    seg.chunks.append(arr)
+                    seg.npts += arr.shape[0]
+                    continue
+                traces.append(seg.flush())
+            seg = _PendingSegment(nslc_cache[sid], starttime_ns, samprate, enc, flags)
+            seg.chunks.append(arr)
+            seg.npts = arr.shape[0]
+        if seg is not None:
+            traces.append(seg.flush())
+
     traces.sort(key=lambda t: (t.id, t.starttime_ns))
     return TraceBundle(traces)
+
+
+def _warn_if_truncated(total: int, consumed: int) -> None:
+    """Warn when trailing bytes were not parsed (truncated final record —
+    a live failure mode for network-fetched buffers; libmseed skips the
+    partial record silently)."""
+    if consumed and consumed < total:
+        import warnings
+
+        warnings.warn(
+            f"{total - consumed} trailing byte(s) of the miniSEED buffer were "
+            "not parsed — truncated final record? The decoded data may be "
+            "shorter than the source.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -642,13 +704,19 @@ def _parse_records(raw: bytes, collect_flags: bool) -> TraceBundle:
 # --------------------------------------------------------------------------- #
 
 
-def bundle_to_obspy(bundle: TraceBundle):
+def bundle_to_obspy(bundle: TraceBundle, merge=None):
     """
     Convert TraceBundle → ``obspy.Stream``.  **Requires ObsPy.**
 
     Use this when you need ObsPy processing (filtering, response removal,
     instrument correction, etc.) on data that was downloaded and decoded
     without ObsPy.
+
+    ``merge=None`` (default) returns one Trace per continuous segment —
+    the same shape ``obspy.read`` gives, so ``filter``/``detrend``/
+    ``remove_response`` work unmodified. The old behavior force-merged with
+    ``fill_value=None``, producing MASKED arrays on gappy data that break
+    standard obspy processing; request it explicitly with ``merge=1``.
 
     Attribution: ObsPy — Beyreuther et al. (2010), doi:10.1785/gssrl.81.3.530
     """
@@ -674,7 +742,8 @@ def bundle_to_obspy(bundle: TraceBundle):
             },
         )
         st.append(tr)
-    st.merge(method=1, fill_value=None)
+    if merge is not None:
+        st.merge(method=merge, fill_value=None)
     return st
 
 

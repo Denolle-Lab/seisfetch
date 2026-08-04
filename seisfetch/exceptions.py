@@ -62,3 +62,19 @@ class FDSNError(SeisfetchError):
         self.status = status
         self.url = url
         super().__init__(f"FDSN request failed with HTTP {status}: {url} {message}")
+
+
+class MixedSamplingRateError(SeisfetchError):
+    """One NSLC id carries segments at different sampling rates.
+
+    Merging them into one array would be meaningless; use
+    ``TraceBundle.segments()`` for per-rate access.
+    """
+
+    def __init__(self, nslc, rates):
+        self.nslc = nslc
+        self.rates = list(rates)
+        super().__init__(
+            f"cannot merge {nslc}: segments at differing sampling rates "
+            f"{self.rates} Hz. Use segments() for per-rate access."
+        )
