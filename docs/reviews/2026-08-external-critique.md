@@ -13,7 +13,17 @@ translations were isolated into `seisfetch/contrib/obspy_ports.py` under
 LGPL-3.0-only with SPDX header and derivation notice; project license
 expression is now `MIT AND LGPL-3.0-only`; THIRD_PARTY_NOTICES gained a
 "Derived code" section covering ObsPy (LGPL), NoisePy (MIT), and SeisIO.jl
-(MIT) provenance. Remaining blockers B2-B4 unfixed as of this note.
+(MIT) provenance.
+
+**B2+B3 resolved 2026-08-04** (commit 862f0bc): typed exceptions
+(`seisfetch/exceptions.py`) replace the silent-empty-bytes contract — clean
+404s tolerated per key, all other failures raise `FetchError`, all-missing
+raises `NoDataError` unless `missing_ok=True`; SCEDC/NCEDC wildcards
+(including the default `location="*"`) resolved by paginated LIST discovery
+(live-verified: the previously-0-byte default CI.PASC BHZ pull now returns
+10.1 MB across loc 00+10); FDSN `*` passes through, `""` maps to `--`,
+204/404 are no-data, real HTTP errors raise `FDSNError`; day windows are
+half-open. B4 remains open.
 
 ---
 
