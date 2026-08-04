@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "setuptools-scm>=8"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]  # >=77: PEP 639 license expression
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,9 @@ name = "seisfetch"
 version = "0.2.0"
 description = "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, and 37+ FDSN servers. Core: numpy + boto3 + pymseed. No ObsPy required."
 readme = "README.md"
-license = "MIT"
+# Compound: the package is MIT except seisfetch/contrib/obspy_ports.py,
+# which contains ObsPy-derived translations and is LGPL-3.0-only
+license = "MIT AND LGPL-3.0-only"
 requires-python = ">=3.9"
 authors = [
     { name = "UW ESS Denolle Group" },

@@ -35,6 +35,15 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+# ObsPy-derived numerical primitives live in obspy_ports (LGPL-3.0-only);
+# re-exported here for backward compatibility of the public API
+from seisfetch.contrib.obspy_ports import (  # noqa: F401
+    _npts2nfft,
+    cosine_sac_taper_np,
+    invert_spectrum_np,
+    sac_cosine_taper,
+)
+
 _NS = {"s": "http://www.fdsn.org/xml/station/1"}
 
 # frequency-domain differentiation exponent by quantity
@@ -320,67 +329,6 @@ def _fir_shape(s: FIRStage, w: np.ndarray) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 #  obspy remove_response port (pure numpy)
 # --------------------------------------------------------------------------- #
-
-
-def _npts2nfft(npts: int) -> int:
-    """Port of obspy.signal.util._npts2nfft."""
-    nfft = 2 * npts if npts % 2 == 0 else 2 * (npts + 1)
-
-    def max_prime(n):
-        f = 2
-        largest = 1
-        while f * f <= n:
-            while n % f == 0:
-                largest, n = f, n // f
-            f += 1
-        return max(largest, n) if n > 1 else largest
-
-    if nfft > 5000 and max_prime(nfft) >= 500:
-        for cand in range(nfft + 2, nfft + 22, 2):
-            if max_prime(cand) < 500:
-                return cand
-        return int(2 ** np.ceil(np.log2(nfft)))
-    return nfft
-
-
-def sac_cosine_taper(npts: int, p: float = 0.05) -> np.ndarray:
-    """Port of obspy cosine_taper(..., sactaper=True, halfcosine=False)."""
-    frac = int(npts * p / 2.0 + 0.5)
-    idx1, idx2 = 0, frac - 1
-    idx3, idx4 = npts - frac, npts - 1
-    idx2 += 1
-    idx3 -= 1
-    w = np.ones(npts)
-    k = np.arange(idx1, idx2 + 1)
-    w[idx1 : idx2 + 1] = np.cos(-(np.pi / 2.0) * (idx2 - k) / (idx2 - idx1))
-    k = np.arange(idx3, idx4 + 1)
-    w[idx3 : idx4 + 1] = np.cos((np.pi / 2.0) * (idx3 - k) / (idx4 - idx3))
-    return w
-
-
-def cosine_sac_taper_np(freqs: np.ndarray, flimit) -> np.ndarray:
-    """Port of obspy cosine_sac_taper: raised-cosine band flanks."""
-    fl1, fl2, fl3, fl4 = flimit
-    t = np.zeros_like(freqs)
-    left = (fl1 <= freqs) & (freqs <= fl2)
-    t[left] = 0.5 * (1.0 - np.cos(np.pi * (freqs[left] - fl1) / (fl2 - fl1)))
-    t[(fl2 < freqs) & (freqs < fl3)] = 1.0
-    right = (fl3 <= freqs) & (freqs <= fl4)
-    t[right] = 0.5 * (1.0 + np.cos(np.pi * (freqs[right] - fl3) / (fl4 - fl3)))
-    return t
-
-
-def invert_spectrum_np(h: np.ndarray, water_level_db: float) -> np.ndarray:
-    """Port of obspy invert_spectrum: water-level-regularized 1/H."""
-    h = h.copy()
-    swamp = np.abs(h).max() * 10.0 ** (-water_level_db / 20.0)
-    mag = np.abs(h)
-    idx = (mag < swamp) & (mag > 0.0)
-    h[idx] *= swamp / mag[idx]
-    nonzero = np.abs(h) > 0.0
-    h[nonzero] = 1.0 / h[nonzero]
-    h[~nonzero] = 0.0
-    return h
 
 
 def remove_response_np(

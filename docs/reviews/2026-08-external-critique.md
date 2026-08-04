@@ -6,8 +6,14 @@ SUSPECTED. Reviewers: (1) an obspy core-team RSE, (2) an EarthScope cloud
 RSE (pymseed + S3 archive operator perspective), (3) a seismic network
 engineer specialized in response metadata and digit-level accuracy.
 
-This file is the deduplicated synthesis; fix order at the end. Nothing has
-been fixed yet — this is the honest state of the branch.
+This file is the deduplicated synthesis; fix order at the end.
+
+**Resolution log:** B1 (licensing) resolved 2026-08-04 — the ObsPy-derived
+translations were isolated into `seisfetch/contrib/obspy_ports.py` under
+LGPL-3.0-only with SPDX header and derivation notice; project license
+expression is now `MIT AND LGPL-3.0-only`; THIRD_PARTY_NOTICES gained a
+"Derived code" section covering ObsPy (LGPL), NoisePy (MIT), and SeisIO.jl
+(MIT) provenance. Remaining blockers B2-B4 unfixed as of this note.
 
 ---
 

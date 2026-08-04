@@ -38,6 +38,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from seisfetch.contrib.obspy_ports import (  # noqa: F401  (LGPL-3.0-only file)
+    resample_fourier_np,
+    taper_np,
+)
 from seisfetch.convert import TraceArray, TraceBundle
 
 logger = logging.getLogger(__name__)
@@ -140,36 +144,6 @@ def check_sample_gaps_np(
     return out
 
 
-def taper_np(
-    x: np.ndarray,
-    sampling_rate: float,
-    max_percentage: float = 0.05,
-    max_length: float | None = None,
-) -> np.ndarray:
-    """Port of obspy ``Trace.taper(type='hann', side='both')``."""
-    from scipy.signal.windows import hann
-
-    npts = x.shape[0]
-    half = [int(max_percentage * npts)]
-    if max_length is not None:
-        half.append(int(max_length * sampling_rate))
-    half.append(int(npts / 2))
-    wlen = min(half)
-
-    if 2 * wlen == npts:
-        sides = hann(2 * wlen)
-    else:
-        sides = hann(2 * wlen + 1)
-    taper = np.hstack(
-        (sides[:wlen], np.ones(npts - 2 * wlen), sides[len(sides) - wlen :])
-    )
-    if not np.issubdtype(x.dtype, np.floating):
-        x = np.require(x, dtype=np.float64)
-    # obspy multiplies in place (self.data *= taper), so the input float
-    # dtype is preserved — match that exactly (float32 stays float32)
-    return (x * taper).astype(x.dtype, copy=False)
-
-
 def merge_fill0_np(segments: list[TraceArray]) -> tuple[np.ndarray, int]:
     """Port of ``Stream.merge(method=1, fill_value=0)``.
 
@@ -208,54 +182,6 @@ def bandpass_np(
     if zerophase:
         return sosfilt(sos, firstpass[::-1])[::-1]
     return firstpass
-
-
-def resample_fourier_np(
-    x: np.ndarray, sr_in: float, sr_out: float, window: str = "hann"
-) -> np.ndarray:
-    """Port of ``obspy.core.trace.Trace.resample(no_filter=True)``.
-
-    Uses the same packed real FFT (scipy.fftpack) and linear spectral
-    interpolation as obspy, so output should match to machine precision.
-    """
-    from scipy.fftpack import irfft, rfft
-    from scipy.signal import get_window
-
-    npts = x.shape[0]
-    factor = sr_in / float(sr_out)
-
-    spec = rfft(x.view(x.dtype.newbyteorder("=")))
-    spec = np.insert(spec, 1, spec.dtype.type(0))
-    if npts % 2 == 0:
-        spec = np.append(spec, [0])
-    x_r = spec[::2]
-    x_i = spec[1::2]
-
-    if window is not None:
-        large_w = np.fft.ifftshift(get_window(window, npts))
-        x_r = x_r * large_w[: npts // 2 + 1]
-        x_i = x_i * large_w[: npts // 2 + 1]
-
-    num = int(npts / factor)
-    if num == 0:
-        num = 1
-
-    # float-op order mirrors obspy exactly (delta = 1/sr, df = 1/(npts*delta))
-    # so results match to the last ulp even for odd npts
-    delta = 1.0 / sr_in
-    df = 1.0 / (npts * delta)
-    d_large_f = 1.0 / num * sr_out
-    f = df * np.arange(0, npts // 2 + 1, dtype=np.int32)
-    n_large_f = num // 2 + 1
-    large_f = d_large_f * np.arange(0, n_large_f, dtype=np.int32)
-    large_y = np.zeros(2 * n_large_f)
-    large_y[::2] = np.interp(large_f, f, x_r)
-    large_y[1::2] = np.interp(large_f, f, x_i)
-
-    large_y = np.delete(large_y, 1)
-    if num % 2 == 0:
-        large_y = np.delete(large_y, -1)
-    return irfft(large_y) * (float(num) / float(npts))
 
 
 def trim_pad0_np(
