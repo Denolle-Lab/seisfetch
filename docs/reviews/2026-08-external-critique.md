@@ -71,6 +71,20 @@ explicit opt-in; `fetch_bulk_numpy` drops raw bytes after parsing by default
 station-day objects to the requested channel/location after parse. 12 tests
 in tests/test_operations.py.
 
+**Project shell resolved 2026-08-04**: version 0.3.0 (single-sourced via
+importlib.metadata, setuptools-scm dropped) with a full CHANGELOG; pymseed
+pin raised to `>=0.6,<0.10` after verifying 0.9.3 (parse suite + private-API
+probe + owned-buffer decode); CI gains a lint job, a 3.9/3.10/3.12/3.13 +
+macOS matrix, and an informational latest-pymseed leg; both untraceable
+report numbers repaired against committed JSONs (cold import 0.08/0.13 s,
+footprint 80.4/311.4 MB from a committed footprint run); the duplicated
+11 MB fixture removed and diagnostic scripts moved to tools/diagnostics/;
+benchmark results now render with plots (SVGs in RESULTS.md, self-contained
+RESULTS.html, matplotlib dev-only); container benchmark rows carry the git
+sha and effective cgroup cpu limit. **Every tier of this critique is now
+resolved.** Remaining deliberately with the maintainer: PyPI release/tag,
+opening the PR, submitting the pymseed issue.
+
 ---
 
 ## Blockers
