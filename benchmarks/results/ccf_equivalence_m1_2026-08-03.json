@@ -1,0 +1,38 @@
+{
+  "EN": {
+    "dvv_cell_a": 83,
+    "dvv_cell_b": 83,
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 1.0,
+    "windows_a": 62
+  },
+  "EZ": {
+    "dvv_cell_a": 83,
+    "dvv_cell_b": 83,
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 0.9999999999999998,
+    "windows_a": 70
+  },
+  "NZ": {
+    "dvv_cell_a": 83,
+    "dvv_cell_b": 83,
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 1.0,
+    "windows_a": 69
+  },
+  "ZZ": {
+    "dvv_cell_a": 83,
+    "dvv_cell_b": 83,
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 1.0,
+    "windows_a": 92
+  }
+}

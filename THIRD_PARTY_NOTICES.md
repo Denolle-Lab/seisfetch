@@ -133,3 +133,30 @@ decoding) draws on the architecture established by:
 
 - **Clements & Denolle (2019)** — *Cactus to Clouds: Processing The SCEDC
   Open Data Set on AWS.* 2019 SCEC Annual Meeting.
+
+---
+
+## Derived code (license-bearing)
+
+- **`seisfetch/contrib/obspy_ports.py` — LGPL-3.0-only.** Contains Python
+  translations of ObsPy routines (`Trace.resample`, `Trace.taper`,
+  `obspy.signal.invsim.cosine_taper` / `cosine_sac_taper` /
+  `invert_spectrum`, `obspy.signal.util._npts2nfft`), preserving their exact
+  numerical behavior including float-operation order. ObsPy is
+  Copyright (C) The ObsPy Development Team, licensed under the GNU Lesser
+  General Public License v3 (https://github.com/obspy/obspy). These
+  translations are works based on the Library and are distributed under
+  LGPL-3.0-only; the file carries an SPDX header. The project license
+  expression is therefore `MIT AND LGPL-3.0-only`.
+- **Parts of `seisfetch/contrib/noisepy_adapter.py` — MIT.** The
+  `check_sample_gaps_np` / `segment_interpolate_np` / `preprocess_raw_np`
+  chain reimplements the preprocessing semantics of NoisePy
+  (`noisepy-seis`, MIT, Copyright (c) Marine Denolle & Chengxin Jiang;
+  https://github.com/noisepy/NoisePy).
+- **Parts of `seisfetch/contrib/response.py` — MIT.**
+  `translate_resp_np` and `damped_oscillator_response` reimplement the
+  response-translation approach of SeisIO.jl (`translate_resp!`,
+  `fctoresp`; MIT, https://github.com/jpjones76/SeisIO.jl). The
+  evalresp-equivalent evaluator in the same file was built by black-box
+  empirical verification against evalresp's observed behavior (clean-room;
+  no evalresp or ObsPy source translated).

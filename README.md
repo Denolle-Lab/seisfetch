@@ -592,6 +592,11 @@ pixi run test-int
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and licenses.
 
+Benchmarks with plots: [benchmarks/RESULTS.md](benchmarks/RESULTS.md) (or the
+self-contained [RESULTS.html](benchmarks/RESULTS.html)). Changes:
+[CHANGELOG.md](CHANGELOG.md). Response-removal tutorial:
+[notebooks/05_response_removal.ipynb](notebooks/05_response_removal.ipynb).
+
 ## Citation
 
 When using data accessed through `seisfetch`:
@@ -609,4 +614,10 @@ Software references:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+`MIT AND LGPL-3.0-only`. The package is MIT ([LICENSE](LICENSE)) with one
+exception: [`seisfetch/contrib/obspy_ports.py`](seisfetch/contrib/obspy_ports.py)
+contains numerically exact translations of ObsPy routines and is
+LGPL-3.0-only (ObsPy is © The ObsPy Development Team, LGPL v3). Using
+seisfetch as a library is unaffected; redistributors of modified versions of
+that one file must honor LGPL terms. Details in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

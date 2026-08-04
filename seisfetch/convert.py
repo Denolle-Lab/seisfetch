@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from seisfetch.exceptions import MixedSamplingRateError
+
 logger = logging.getLogger(__name__)
 
 METADATA_TABLE_COLUMNS = [
@@ -64,7 +66,22 @@ _NUMERIC_METADATA_COLUMNS = {
 
 # pymseed is a core dependency — imported eagerly
 from pymseed import MS3Record, sourceid2nslc  # noqa: E402
-from pymseed.clib import ffi as _ffi  # noqa: E402
+
+
+def _sid_latin1_fallback(msr) -> str:
+    """Recover a sourceid with non-UTF-8 bytes via pymseed internals.
+
+    Isolated here because it reaches private API (``pymseed.clib.ffi``,
+    ``msr._msr.sid``); if pymseed internals change, this degrades to an
+    empty sid (record skipped with a warning) instead of an ImportError.
+    """
+    try:
+        from pymseed.clib import ffi as _ffi
+
+        return _ffi.string(msr._msr.sid).decode("latin-1")
+    except (ImportError, AttributeError) as exc:  # pragma: no cover
+        logger.warning("pymseed private API unavailable for sid fallback: %s", exc)
+        return ""
 
 
 @dataclass
@@ -152,17 +169,156 @@ class TraceBundle:
         ]
         return TraceBundle(out)
 
-    def to_dict(self) -> dict[str, np.ndarray]:
-        """``{nslc_id: ndarray}`` — segments concatenated (sorted by time)."""
+    def segments(self) -> dict[str, list[TraceArray]]:
+        """``{nslc_id: [TraceArray, ...]}`` — time-sorted continuous segments."""
         groups: dict[str, list[TraceArray]] = {}
         for t in self.traces:
             groups.setdefault(t.id, []).append(t)
-        return {
-            k: np.concatenate(
-                [s.data for s in sorted(segs, key=lambda s: s.starttime_ns)]
+        return {k: sorted(v, key=lambda s: s.starttime_ns) for k, v in groups.items()}
+
+    def to_dict(self, fill_value: float | None = None) -> dict[str, np.ndarray]:
+        """``{nslc_id: ndarray}`` — one array per channel.
+
+        Parameters
+        ----------
+        fill_value : scalar or None
+            If a scalar (e.g. ``0`` or ``np.nan``), allocate the full time
+            span per channel and place each segment at its true sample
+            offset, filling gaps with ``fill_value``; overlapping segments
+            are resolved later-segment-overwrites. The output dtype is the
+            data dtype, promoted to float if ``fill_value`` requires it.
+            If None (default, historical behavior), segments are plainly
+            concatenated — a gappy channel yields a shorter array whose
+            implied time axis is wrong after the first gap; a ``UserWarning``
+            is emitted when this happens. Use ``fill_value=`` or
+            ``segments()`` for gap-aware processing.
+        """
+        segs_by_id = self.segments()
+        for k, segs in segs_by_id.items():
+            rates = {s.sampling_rate for s in segs}
+            if len(rates) > 1:
+                raise MixedSamplingRateError(k, sorted(rates))
+        if fill_value is None:
+            gap_ids = [k for k, g in self.gaps().items() if g]
+            if gap_ids:
+                import warnings
+
+                warnings.warn(
+                    f"to_dict(): channels {gap_ids} contain gaps; segments were "
+                    "concatenated without fill so the implied time axis is wrong "
+                    "after the first gap. Pass fill_value= (e.g. 0) or use "
+                    "segments().",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            return {
+                k: np.concatenate([s.data for s in segs])
+                if len(segs) > 1
+                else segs[0].data
+                for k, segs in segs_by_id.items()
+            }
+
+        out: dict[str, np.ndarray] = {}
+        for k, segs in segs_by_id.items():
+            sr = segs[0].sampling_rate
+            t0_ns = segs[0].starttime_ns
+            # keep the data dtype when fill_value is exactly representable
+            # in it (0 in float32 stays float32 — obspy merge semantics);
+            # promote otherwise (NaN into int data -> float64)
+            data_dtype = segs[0].data.dtype
+            cast = np.asarray(fill_value).astype(data_dtype, casting="unsafe")
+            try:
+                fits = bool(cast == fill_value) or (
+                    np.isnan(fill_value) and np.isnan(cast)
+                )
+            except (TypeError, ValueError):
+                fits = False
+            dtype = data_dtype if fits else np.result_type(data_dtype, np.float64)
+            # span from the MAX end time — a segment fully contained in an
+            # earlier one must not shrink the buffer (crash class from the
+            # 2026-08 critique)
+            end_ns = max(s.endtime_ns for s in segs)
+            npts = int(round((end_ns - t0_ns) * sr / 1e9)) + 1
+            arr = np.full(npts, fill_value, dtype=dtype)
+            # obspy merge(method=1, interpolation_samples=0) overlap policy:
+            # partial (tail) overlap -> the later segment overwrites; a
+            # segment FULLY CONTAINED in what has already been placed is
+            # skipped (the surrounding trace wins)
+            cur_end: int | None = None
+            for s in segs:
+                if cur_end is not None and s.endtime_ns <= cur_end:
+                    continue
+                i0 = int(round((s.starttime_ns - t0_ns) * sr / 1e9))
+                arr[i0 : i0 + s.npts] = s.data
+                cur_end = (
+                    s.endtime_ns if cur_end is None else max(cur_end, s.endtime_ns)
+                )
+            out[k] = arr
+        return out
+
+    def trim(self, start_ns: int, end_ns: int) -> "TraceBundle":
+        """Return a new bundle with every segment cut to [start_ns, end_ns].
+
+        Sample-precise: keeps samples whose time is within the window
+        (inclusive); ``starttime_ns`` of cut segments is adjusted. Empty
+        segments are dropped.
+        """
+        out: list[TraceArray] = []
+        for t in self.traces:
+            if t.sampling_rate <= 0 or t.npts == 0:
+                continue
+            dt_ns = 1e9 / t.sampling_rate
+            i0 = max(0, int(np.ceil((start_ns - t.starttime_ns) / dt_ns - 1e-9)))
+            i1 = min(
+                t.npts - 1, int(np.floor((end_ns - t.starttime_ns) / dt_ns + 1e-9))
             )
-            for k, segs in groups.items()
-        }
+            if i1 < i0:
+                continue
+            out.append(
+                TraceArray(
+                    network=t.network,
+                    station=t.station,
+                    location=t.location,
+                    channel=t.channel,
+                    starttime_ns=t.starttime_ns + int(round(i0 * dt_ns)),
+                    sampling_rate=t.sampling_rate,
+                    data=t.data[i0 : i1 + 1],
+                    encoding=t.encoding,
+                    record_flags=t.record_flags,
+                )
+            )
+        return TraceBundle(out)
+
+    def overlaps(self, min_overlap_samples: float = 0.5) -> dict[str, list[GapInfo]]:
+        """Detect overlapping segments per channel (negative gaps).
+
+        Returns GapInfo entries with negative ``duration_s`` /
+        ``samples_missing`` describing the overlapped span.
+        """
+        result: dict[str, list[GapInfo]] = {}
+        for nslc, segs in self.segments().items():
+            channel_overlaps: list[GapInfo] = []
+            for i in range(len(segs) - 1):
+                cur, nxt = segs[i], segs[i + 1]
+                sr = cur.sampling_rate
+                if sr <= 0:
+                    continue
+                sample_interval_ns = int(1e9 / sr)
+                expected_next_ns = cur.endtime_ns + sample_interval_ns
+                overlap_ns = expected_next_ns - nxt.starttime_ns
+                overlap_samples = overlap_ns / sample_interval_ns
+                if overlap_samples >= min_overlap_samples:
+                    channel_overlaps.append(
+                        GapInfo(
+                            channel_id=nslc,
+                            start_ns=nxt.starttime_ns,
+                            end_ns=expected_next_ns,
+                            duration_s=-overlap_ns / 1e9,
+                            samples_missing=-int(overlap_samples),
+                        )
+                    )
+            result[nslc] = channel_overlaps
+        return result
 
     @property
     def ids(self) -> list[str]:
@@ -228,6 +384,9 @@ class TraceBundle:
         result: dict[str, ChannelMetadata] = {}
 
         for nslc, segs in groups.items():
+            rates = {s.sampling_rate for s in segs}
+            if len(rates) > 1:
+                raise MixedSamplingRateError(nslc, sorted(rates))
             sorted_segs = sorted(segs, key=lambda s: s.starttime_ns)
             first = sorted_segs[0]
             total_samples = sum(s.npts for s in sorted_segs)
@@ -261,16 +420,94 @@ class TraceBundle:
 # --------------------------------------------------------------------------- #
 
 
-def parse_mseed(raw: bytes) -> TraceBundle:
+def _resolve_nslc(msr, sid: str) -> tuple[str, str, str, str]:
+    """sourceid → (net, sta, loc, cha), with v2 raw-header fallback."""
+    try:
+        net, sta, loc, cha = sourceid2nslc(sid)
+    except Exception:
+        parts = sid.replace("FDSN:", "").split("_")
+        net = parts[0] if len(parts) > 0 else ""
+        sta = parts[1] if len(parts) > 1 else ""
+        loc = parts[2] if len(parts) > 2 else ""
+        cha = "".join(parts[3:6]) if len(parts) > 5 else "".join(parts[3:])
+
+    # For v2 records where libmseed may have dropped non-ASCII NSLC
+    # codes during FDSN SID conversion, try the raw binary header.
+    if msr.formatversion == 2 and not sta:
+        rec_bytes = msr.record
+        if rec_bytes is not None and len(rec_bytes) >= 20:
+            sta = rec_bytes[8:13].decode("latin-1").strip()
+            if not net:
+                net = rec_bytes[18:20].decode("latin-1").strip()
+            if not loc:
+                loc = rec_bytes[13:15].decode("latin-1").strip()
+            if not cha:
+                cha = rec_bytes[15:18].decode("latin-1").strip()
+    return net, sta, loc, cha
+
+
+class _PendingSegment:
+    """Accumulates contiguous records of one channel into one TraceArray."""
+
+    __slots__ = (
+        "nslc",
+        "starttime_ns",
+        "sampling_rate",
+        "chunks",
+        "npts",
+        "encoding",
+        "record_flags",
+    )
+
+    def __init__(self, nslc, starttime_ns, sampling_rate, encoding, record_flags):
+        self.nslc = nslc
+        self.starttime_ns = starttime_ns
+        self.sampling_rate = sampling_rate
+        self.chunks: list[np.ndarray] = []
+        self.npts = 0
+        self.encoding = encoding
+        self.record_flags = record_flags
+
+    @property
+    def expected_next_ns(self) -> int:
+        return self.starttime_ns + int(round(self.npts / self.sampling_rate * 1e9))
+
+    def flush(self) -> TraceArray:
+        net, sta, loc, cha = self.nslc
+        data = self.chunks[0] if len(self.chunks) == 1 else np.concatenate(self.chunks)
+        return TraceArray(
+            network=net,
+            station=sta,
+            location=loc,
+            channel=cha,
+            starttime_ns=self.starttime_ns,
+            sampling_rate=self.sampling_rate,
+            data=data,
+            encoding=self.encoding,
+            record_flags=self.record_flags,
+        )
+
+
+def parse_mseed(raw: bytes, collect_flags: bool = False) -> TraceBundle:
     """
     Parse miniSEED bytes into numpy arrays via pymseed (libmseed C).
 
     This is the sole parser — ObsPy is never used for decoding.
 
+    Contiguous records of the same channel are merged into one ``TraceArray``,
+    so ``TraceBundle.traces`` holds true continuous segments, not one entry
+    per miniSEED record. The fast path assembles segments in C via libmseed's
+    trace list (``MS3TraceList``); a per-record fallback handles buffers with
+    malformed (non-UTF-8) v2 headers.
+
     Parameters
     ----------
     raw : bytes
         Raw miniSEED data (v2 or v3).
+    collect_flags : bool
+        If True, populate ``TraceArray.record_flags`` from the first record
+        of each segment. Off by default: flag parsing costs a Python call
+        per segment and is rarely needed.
 
     Returns
     -------
@@ -278,70 +515,188 @@ def parse_mseed(raw: bytes) -> TraceBundle:
     """
     if not raw:
         return TraceBundle()
+    try:
+        return _parse_tracelist(raw, collect_flags)
+    except Exception as exc:
+        logger.debug("MS3TraceList fast path failed (%s); per-record fallback", exc)
+        return _parse_records(raw, collect_flags)
 
-    traces = []
+
+def _parse_tracelist(raw: bytes, collect_flags: bool) -> TraceBundle:
+    """Fast path: libmseed assembles contiguous segments in C.
+
+    The trace list is built with ``record_list=True`` but ``unpack_data=False``:
+    libmseed parses headers and links per-segment record lists in C (cheap),
+    then each segment is decoded directly into a numpy-owned array via
+    ``create_numpy_array_from_recordlist()`` (libmseed's
+    ``mstl3_unpack_recordlist`` writing into a caller buffer).
+
+    Compared with the previous ``unpack_data=True`` + ``np_datasamples.copy()``
+    approach this does ONE big allocation per segment instead of two (libmseed
+    internal sample buffer + numpy copy) and no memcpy.  On an 11 MB Steim2
+    channel-day this is ~30% faster natively and ~2.5x faster in a
+    cgroup-limited container, where the extra 35 MB allocation + copy cost
+    ~27 ms of page-fault time (see benchmarks/profile_parse.py).
+
+    ``raw`` must stay alive until decoding finishes — the record list holds
+    pointers into it; that is guaranteed here because decoding completes
+    before this function returns.
+    """
+    from pymseed import MS3TraceList
+
+    traces: list[TraceArray] = []
+    tl = MS3TraceList.from_buffer(raw, unpack_data=False, record_list=True)
+    for tid in tl:
+        sid = tid.sourceid  # may raise UnicodeDecodeError -> fallback path
+        nslc = None
+        for seg in tid:
+            # Decode straight into a numpy-owned buffer (no C-side copy).
+            # Mixed-encoding segments make libmseed error out here, which
+            # propagates to parse_mseed() and lands in the per-record
+            # fallback — the correct slow path for such data.
+            arr = seg.create_numpy_array_from_recordlist()
+            if arr.size == 0:
+                continue
+            # first record of the segment carries encoding/flags; the
+            # record list is C-built so this is one parse per segment
+            r0 = next(seg.recordlist.records()).record
+            if nslc is None:
+                nslc = _resolve_nslc(r0, sid)
+            try:
+                enc = r0.encoding_str() or ""
+            except Exception:
+                enc = ""
+            flags = {}
+            if collect_flags:
+                try:
+                    flags = r0.flags_dict()
+                except Exception:
+                    flags = {}
+            net, sta, loc, cha = nslc
+            traces.append(
+                TraceArray(
+                    network=net,
+                    station=sta,
+                    location=loc,
+                    channel=cha,
+                    starttime_ns=seg.starttime,
+                    sampling_rate=seg.samprate,
+                    data=arr,
+                    encoding=enc if isinstance(enc, str) else str(enc),
+                    record_flags=flags,
+                )
+            )
+    traces.sort(key=lambda t: (t.id, t.starttime_ns))
+    # truncated-buffer check: v2/v3 records are >=128-byte aligned, so a
+    # buffer length off that grid means a partial trailing record libmseed
+    # silently skipped. Only then pay for the record-list walk.
+    if len(raw) % 128:
+        try:
+            consumed = 0
+            for tid in tl:
+                for seg in tid:
+                    for entry in seg.recordlist.records():
+                        end = entry.fileoffset + getattr(entry.record, "reclen", 0)
+                        if end > consumed:
+                            consumed = end
+            _warn_if_truncated(len(raw), consumed)
+        except Exception:  # diagnostics must never break parsing
+            pass
+    return TraceBundle(traces)
+
+
+def _parse_records(raw: bytes, collect_flags: bool) -> TraceBundle:
+    """Per-record fallback with non-UTF-8 v2 header recovery.
+
+    Records are collected per source id and SORTED BY START TIME before
+    contiguity merging, so out-of-order contiguous records heal into one
+    segment exactly as libmseed's trace list does on the fast path (the
+    2026-08 critique demonstrated the two paths could disagree on segment
+    topology — and hence on downstream >100-segment rejection — for the
+    same bytes).
+    """
+    # per-sid caches: NSLC is constant within a channel
+    nslc_cache: dict[str, tuple[str, str, str, str]] = {}
+    per_sid: dict[str, list] = {}
+    consumed = 0
+
     for msr in MS3Record.from_buffer(raw, unpack_data=True):
         # Access sourceid safely — some miniSEED v2 records have non-UTF-8
         # bytes in header fields.  Fall back to latin-1 which never fails.
         try:
             sid = msr.sourceid
         except UnicodeDecodeError:
-            sid = _ffi.string(msr._msr.sid).decode("latin-1")
+            sid = _sid_latin1_fallback(msr)
+            if not sid:
+                continue
             logger.debug("Decoded sourceid with latin-1 fallback: %s", sid)
-        try:
-            net, sta, loc, cha = sourceid2nslc(sid)
-        except Exception:
-            parts = sid.replace("FDSN:", "").split("_")
-            net = parts[0] if len(parts) > 0 else ""
-            sta = parts[1] if len(parts) > 1 else ""
-            loc = parts[2] if len(parts) > 2 else ""
-            cha = "".join(parts[3:6]) if len(parts) > 5 else "".join(parts[3:])
 
-        # For v2 records where libmseed may have dropped non-ASCII NSLC
-        # codes during FDSN SID conversion, try the raw binary header.
-        if msr.formatversion == 2 and not sta:
-            rec_bytes = msr.record
-            if rec_bytes is not None and len(rec_bytes) >= 20:
-                sta = rec_bytes[8:13].decode("latin-1").strip()
-                if not net:
-                    net = rec_bytes[18:20].decode("latin-1").strip()
-                if not loc:
-                    loc = rec_bytes[13:15].decode("latin-1").strip()
-                if not cha:
-                    cha = rec_bytes[15:18].decode("latin-1").strip()
-
+        consumed += getattr(msr, "reclen", 0) or 0
         arr = msr.np_datasamples.copy()
         if arr.size == 0:
             continue
 
-        # Capture encoding and quality flags from the record.
-        # pymseed may raise UnicodeDecodeError on some v2 records.
-        # ``encoding_str`` is a method on MS3Record, not a property, so call it.
+        if sid not in nslc_cache:
+            nslc_cache[sid] = _resolve_nslc(msr, sid)
+
         try:
             enc = msr.encoding_str() or ""
-        except (UnicodeDecodeError, Exception):
+        except Exception:
             enc = ""
         if not isinstance(enc, str):
             enc = str(enc) if enc is not None else ""
-        try:
-            flags = msr.flags_dict()
-        except (UnicodeDecodeError, Exception):
+        if collect_flags:
+            try:
+                flags = msr.flags_dict()
+            except Exception:
+                flags = {}
+        else:
             flags = {}
-
-        traces.append(
-            TraceArray(
-                network=net,
-                station=sta,
-                location=loc,
-                channel=cha,
-                starttime_ns=msr.starttime,
-                sampling_rate=msr.samprate,
-                data=arr,
-                encoding=enc,
-                record_flags=flags,
-            )
+        per_sid.setdefault(sid, []).append(
+            (msr.starttime, msr.samprate, arr, enc, flags)
         )
+
+    _warn_if_truncated(len(raw), consumed)
+
+    traces: list[TraceArray] = []
+    for sid, records in per_sid.items():
+        records.sort(key=lambda r: r[0])
+        seg = None
+        for starttime_ns, samprate, arr, enc, flags in records:
+            if seg is not None:
+                tol_ns = 0.5e9 / samprate if samprate > 0 else 0
+                if (
+                    seg.sampling_rate == samprate
+                    and abs(starttime_ns - seg.expected_next_ns) <= tol_ns
+                ):
+                    seg.chunks.append(arr)
+                    seg.npts += arr.shape[0]
+                    continue
+                traces.append(seg.flush())
+            seg = _PendingSegment(nslc_cache[sid], starttime_ns, samprate, enc, flags)
+            seg.chunks.append(arr)
+            seg.npts = arr.shape[0]
+        if seg is not None:
+            traces.append(seg.flush())
+
+    traces.sort(key=lambda t: (t.id, t.starttime_ns))
     return TraceBundle(traces)
+
+
+def _warn_if_truncated(total: int, consumed: int) -> None:
+    """Warn when trailing bytes were not parsed (truncated final record —
+    a live failure mode for network-fetched buffers; libmseed skips the
+    partial record silently)."""
+    if consumed and consumed < total:
+        import warnings
+
+        warnings.warn(
+            f"{total - consumed} trailing byte(s) of the miniSEED buffer were "
+            "not parsed — truncated final record? The decoded data may be "
+            "shorter than the source.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -349,7 +704,7 @@ def parse_mseed(raw: bytes) -> TraceBundle:
 # --------------------------------------------------------------------------- #
 
 
-def bundle_to_obspy(bundle: TraceBundle):
+def bundle_to_obspy(bundle: TraceBundle, merge=None):
     """
     Convert TraceBundle → ``obspy.Stream``.  **Requires ObsPy.**
 
@@ -357,14 +712,19 @@ def bundle_to_obspy(bundle: TraceBundle):
     instrument correction, etc.) on data that was downloaded and decoded
     without ObsPy.
 
+    ``merge=None`` (default) returns one Trace per continuous segment —
+    the same shape ``obspy.read`` gives, so ``filter``/``detrend``/
+    ``remove_response`` work unmodified. The old behavior force-merged with
+    ``fill_value=None``, producing MASKED arrays on gappy data that break
+    standard obspy processing; request it explicitly with ``merge=1``.
+
     Attribution: ObsPy — Beyreuther et al. (2010), doi:10.1785/gssrl.81.3.530
     """
     try:
         from obspy import Stream, Trace, UTCDateTime
     except ImportError:
         raise ImportError(
-            "ObsPy is required for Stream conversion. "
-            "Install with: pip install obspy"
+            "ObsPy is required for Stream conversion. Install with: pip install obspy"
         )
 
     st = Stream()
@@ -381,7 +741,8 @@ def bundle_to_obspy(bundle: TraceBundle):
             },
         )
         st.append(tr)
-    st.merge(method=1, fill_value=None)
+    if merge is not None:
+        st.merge(method=merge, fill_value=None)
     return st
 
 
@@ -688,12 +1049,17 @@ def write_metadata_csv(df, path: str):
 # --------------------------------------------------------------------------- #
 
 
-def bundle_to_xarray(bundle: TraceBundle, merge_segments=True):
+def bundle_to_xarray(bundle: TraceBundle, merge_segments=True, fill_value=np.nan):
     """
     Convert TraceBundle → ``xarray.Dataset``.  **Requires xarray.**
 
     Each NSLC → DataArray with ``datetime64[ns]`` time coordinate.
     Compatible with zarr and earth2studio.
+
+    With ``merge_segments=True`` (default) segments are placed at their true
+    sample offsets and gaps are filled with ``fill_value`` (NaN by default,
+    which promotes integer data to float), so the time coordinate is honest
+    across gaps.
     """
     try:
         import xarray as xr
@@ -701,14 +1067,12 @@ def bundle_to_xarray(bundle: TraceBundle, merge_segments=True):
         raise ImportError("xarray required: pip install xarray")
 
     data_vars = {}
-    grouped: dict[str, list[TraceArray]] = {}
-    for t in bundle.traces:
-        grouped.setdefault(t.id, []).append(t)
+    grouped = bundle.segments()
+    merged = bundle.to_dict(fill_value=fill_value) if merge_segments else None
 
     for nslc, segs in grouped.items():
         if merge_segments:
-            segs.sort(key=lambda s: s.starttime_ns)
-            all_data = np.concatenate([s.data for s in segs])
+            all_data = merged[nslc]
             t0, sr = segs[0].starttime_ns, segs[0].sampling_rate
         else:
             all_data, t0, sr = segs[0].data, segs[0].starttime_ns, segs[0].sampling_rate

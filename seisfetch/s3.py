@@ -26,14 +26,17 @@ Attribution:
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
+from seisfetch.exceptions import FetchError, NoDataError
 from seisfetch.utils import (
     AUTH_ACCESS_POINT,
     AUTH_PREFIX,
@@ -113,7 +116,6 @@ _SCEDC_NETS = frozenset(
         "CI",
         "AZ",
         "BC",
-        "BG",
         "CE",
         "CT",
         "FA",
@@ -131,6 +133,7 @@ _SCEDC_NETS = frozenset(
 # NCEDC networks
 _NCEDC_NETS = frozenset(
     {
+        "BG",  # The Geysers — Berkeley/NCEDC (was mis-routed to SCEDC)
         "BK",
         "BP",
         "CE",
@@ -181,11 +184,50 @@ class S3OpenClient:
         Thread pool for parallel downloads.
     """
 
-    def __init__(self, datacenter=None, max_workers=8, _s3_client=None):
+    def __init__(
+        self,
+        datacenter=None,
+        max_workers=8,
+        _s3_client=None,
+        connect_timeout=10.0,
+        read_timeout=60.0,
+        max_attempts=5,
+    ):
         self._datacenter_override = datacenter
         self._max_workers = max_workers
         self._clients: dict[str, object] = {}
         self._injected_client = _s3_client
+        self._executor = None
+        # operations hardening (2026-08 critique): adaptive client-side
+        # rate limiting + bounded retries against shared community archives,
+        # explicit timeouts (an unreachable bucket used to hang for minutes),
+        # and a connection pool at least as large as the thread fan-out
+        self._config = Config(
+            signature_version=UNSIGNED,
+            retries={"mode": "adaptive", "max_attempts": max_attempts},
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            max_pool_connections=max(10, max_workers),
+        )
+
+    def _get_executor(self) -> ThreadPoolExecutor:
+        """One shared executor per client — per-call executors multiplied by
+        bulk fan-out used to push up to 128 concurrent GETs through a
+        10-connection pool."""
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=self._max_workers)
+        return self._executor
+
+    def close(self):
+        if self._executor is not None:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     def _get_s3(self, region: str):
         """Lazy-init one boto3 client per region."""
@@ -195,7 +237,7 @@ class S3OpenClient:
             self._clients[region] = boto3.client(
                 "s3",
                 region_name=region,
-                config=Config(signature_version=UNSIGNED),
+                config=self._config,
             )
         return self._clients[region]
 
@@ -225,6 +267,56 @@ class S3OpenClient:
         )
         return data, meta
 
+    def _iter_keys(self, s3, bucket: str, prefix: str):
+        """Paginated key listing (list_objects_v2 truncates at 1000)."""
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                yield obj["Key"]
+
+    def _discover_channel_keys(
+        self, dc_name, dc, network, station, yr, doy, channel, location
+    ) -> list[str]:
+        """LIST-based discovery for per-channel archives.
+
+        Used whenever ``channel`` contains a wildcard or ``location`` is
+        ``"*"``: one paginated LIST per station-day replaces guessed GETs,
+        and location-coded channels (00/10/...) are actually found.
+        """
+        s3 = self._get_s3(dc["region"])
+        keys = []
+        if dc_name == "scedc":
+            prefix = (
+                f"continuous_waveforms/{yr}/{yr}_{doy:03d}/"
+                f"{network}{station.ljust(5, '_')}"
+            )
+            for key in self._iter_keys(s3, dc["bucket"], prefix):
+                base = key.rsplit("/", 1)[-1]
+                if len(base) < 13:
+                    continue
+                cha, loc = base[7:10], base[10:13].rstrip("_")
+                if not fnmatch.fnmatch(cha, channel):
+                    continue
+                if location != "*" and loc != (location or ""):
+                    continue
+                keys.append(key)
+        else:  # ncedc
+            prefix = (
+                f"continuous_waveforms/{network}/{yr}/{yr}.{doy:03d}/"
+                f"{station}.{network}."
+            )
+            for key in self._iter_keys(s3, dc["bucket"], prefix):
+                parts = key.rsplit("/", 1)[-1].split(".")
+                if len(parts) < 4:
+                    continue
+                cha, loc = parts[2], parts[3]
+                if not fnmatch.fnmatch(cha, channel):
+                    continue
+                if location != "*" and loc != (location or ""):
+                    continue
+                keys.append(key)
+        return sorted(keys)
+
     def get_raw(
         self,
         network,
@@ -234,13 +326,24 @@ class S3OpenClient:
         location="*",
         channel="*",
         suffix="",
+        missing_ok=False,
+        on_error="raise",
         **kwargs,
     ) -> bytes:
         """
         Download raw miniSEED bytes, auto-routing to the correct S3 bucket.
 
-        For per-channel buckets (SCEDC, NCEDC), ``channel`` must not be
-        a wildcard — pass specific channels or use ``get_raw_bulk()``.
+        Failure contract (see docs/reviews/2026-08-external-critique.md, B2):
+        objects that are cleanly absent (404) are tolerated per key; any
+        OTHER failure (403, throttling, credentials, transport) raises
+        :class:`seisfetch.exceptions.FetchError` unless ``on_error="warn"``.
+        If nothing at all was fetched, :class:`NoDataError` is raised unless
+        ``missing_ok=True`` (which returns ``b""``).
+
+        Wildcards: on per-channel archives (SCEDC/NCEDC), ``location="*"``
+        (the default) and ``channel`` wildcards are resolved by a paginated
+        LIST per station-day, so location-coded channels are found instead
+        of guessed at.
         """
         if starttime is None:
             raise ValueError("starttime is required")
@@ -248,23 +351,29 @@ class S3OpenClient:
             endtime = to_epoch(starttime) + 86400
 
         dc = self._resolve_dc(network)
+        dc_name = self._datacenter_override or route_network(network)
         days = list(date_range(starttime, endtime))
-        chunks: list[bytes] = []
 
-        # Build list of S3 keys to fetch
-        keys = []
+        keys: list[tuple[str, str, str]] = []
         for d in days:
             yr, doy = date_to_year_doy(d)
             if dc["per_channel"]:
-                # Per-channel archives: need explicit channel
-                chans = self._expand_channels(channel)
-                locs = [location] if location and location != "*" else [""]
-                for cha in chans:
-                    for loc in locs:
-                        key = dc["key_fn"](
-                            network, station, yr, doy, location=loc, channel=cha
-                        )
+                wildcard = "*" in channel or "?" in channel or location == "*"
+                if wildcard:
+                    for key in self._discover_channel_keys(
+                        dc_name, dc, network, station, yr, doy, channel, location
+                    ):
                         keys.append((dc["bucket"], key, dc["region"]))
+                else:
+                    key = dc["key_fn"](
+                        network,
+                        station,
+                        yr,
+                        doy,
+                        location=location or "",
+                        channel=channel,
+                    )
+                    keys.append((dc["bucket"], key, dc["region"]))
             else:
                 key = dc["key_fn"](
                     network,
@@ -276,17 +385,63 @@ class S3OpenClient:
                 )
                 keys.append((dc["bucket"], key, dc["region"]))
 
+        if not keys:
+            if missing_ok:
+                return b""
+            raise NoDataError(
+                [
+                    f"{dc['bucket']}: no objects match "
+                    f"{network}.{station}.{location}.{channel} on {len(days)} day(s)"
+                ]
+            )
+        return self._classified_fetch(keys, missing_ok=missing_ok, on_error=on_error)
+
+    def _classified_fetch(self, keys, missing_ok: bool, on_error: str) -> bytes:
+        """Fetch keys in submission order; classify per-key outcomes."""
+        chunks: list[bytes] = []
+        missing: list[str] = []
+        failures: list[tuple[str, str, str]] = []
+
         def _dl(args):
             return self._fetch_object(*args)[0]
 
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(_dl, k): k for k in keys}
-            for f in as_completed(futs):
-                try:
-                    chunks.append(f.result())
-                except Exception:
-                    logger.warning("fetch failed: %s", futs[f][1], exc_info=True)
+        pool = self._get_executor()
+        futs = [(pool.submit(_dl, k), k) for k in keys]
+        for f, (_bucket, key, _region) in futs:
+            try:
+                chunks.append(f.result())
+            except ClientError as e:
+                code = e.response.get("Error", {}).get("Code", "")
+                status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                if code in ("NoSuchKey", "404") or status == 404:
+                    missing.append(key)
+                else:
+                    failures.append((key, code or type(e).__name__, str(e)))
+            except Exception as e:
+                failures.append((key, type(e).__name__, str(e)))
 
+        if failures:
+            if on_error == "raise":
+                if any(c == "AccessDenied" for _, c, _ in failures) and any(
+                    OPEN_BUCKET in b for b, _, _ in [(k[0], 0, 0) for k in keys]
+                ):
+                    failures = failures + [
+                        (
+                            "hint",
+                            "Hint",
+                            "EarthScope objects may need authenticated "
+                            "access — try backend='s3_auth' "
+                            "(pip install seisfetch[auth])",
+                        )
+                    ]
+                raise FetchError(failures, fetched=len(chunks), missing=missing)
+            logger.warning(
+                "%d fetch failure(s) tolerated (on_error='warn'): %s",
+                len(failures),
+                "; ".join(f"{k}: {c}" for k, c, _ in failures[:5]),
+            )
+        if not chunks and not missing_ok:
+            raise NoDataError(missing or [k for _, k, _ in keys])
         return b"".join(chunks)
 
     @staticmethod
@@ -310,11 +465,14 @@ class S3OpenClient:
         dc = DATACENTERS[datacenter]
         s3 = self._get_s3(dc["region"])
         prefix = dc.get("prefix", "continuous_waveforms/")
-        resp = s3.list_objects_v2(Bucket=dc["bucket"], Prefix=prefix, Delimiter="/")
-        return sorted(
-            p["Prefix"].replace(prefix, "").rstrip("/")
-            for p in resp.get("CommonPrefixes", [])
-        )
+        out = set()
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(
+            Bucket=dc["bucket"], Prefix=prefix, Delimiter="/"
+        ):
+            for p in page.get("CommonPrefixes", []):
+                out.add(p["Prefix"].replace(prefix, "").rstrip("/"))
+        return sorted(out)
 
     def list_stations(self, network, year, doy, datacenter=None):
         dc_name = datacenter or route_network(network)
@@ -326,9 +484,9 @@ class S3OpenClient:
             prefix = f"continuous_waveforms/{year}/{year}_{doy:03d}/{network}"
         else:
             prefix = f"continuous_waveforms/{network}/{year}/{year}.{doy:03d}/"
-        resp = s3.list_objects_v2(Bucket=dc["bucket"], Prefix=prefix)
         stations = set()
-        for obj in resp.get("Contents", []):
+        for key in self._iter_keys(s3, dc["bucket"], prefix):
+            obj = {"Key": key}
             fname = obj["Key"].rsplit("/", 1)[-1]
             if dc_name == "earthscope":
                 stations.add(fname.split(".")[0])
@@ -353,10 +511,23 @@ class S3OpenClient:
 class S3AuthClient:
     """Authenticated S3 access via earthscope-sdk. EarthScope data only."""
 
-    def __init__(self, max_workers=8):
+    #: refresh EarthScope AWS credentials after this many seconds — they
+    #: are short-lived, and a multi-hour bulk job used to die mid-run
+    CRED_MAX_AGE_S = 45 * 60
+
+    def __init__(
+        self, max_workers=8, connect_timeout=10.0, read_timeout=60.0, max_attempts=5
+    ):
         self._max_workers = max_workers
         self._bucket = AUTH_ACCESS_POINT
         self._prefix = AUTH_PREFIX
+        self._config = Config(
+            retries={"mode": "adaptive", "max_attempts": max_attempts},
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            max_pool_connections=max(10, max_workers),
+        )
+        self._creds_born = 0.0
         self._s3 = self._create_client()
 
     def _create_client(self):
@@ -369,16 +540,35 @@ class S3AuthClient:
             )
         es = EarthScopeClient()
         creds = es.user.get_aws_credentials()
+        self._creds_born = time.monotonic()
         return boto3.Session(
             aws_access_key_id=creds.aws_access_key_id,
             aws_secret_access_key=creds.aws_secret_access_key,
             aws_session_token=creds.aws_session_token,
-        ).client("s3")
+        ).client("s3", config=self._config)
+
+    def _client_fresh(self):
+        """Time-based credential refresh for long-running jobs."""
+        if time.monotonic() - self._creds_born > self.CRED_MAX_AGE_S:
+            logger.info("refreshing EarthScope AWS credentials (age limit)")
+            self._s3 = self._create_client()
+        return self._s3
+
+    _EXPIRED_CODES = ("ExpiredToken", "InvalidToken", "TokenRefreshRequired")
 
     def _fetch_day(self, network, station, year, doy, suffix=""):
         key = s3_key(network, station, year, doy, prefix=self._prefix, suffix=suffix)
         t0 = time.perf_counter()
-        resp = self._s3.get_object(Bucket=self._bucket, Key=key)
+        try:
+            resp = self._client_fresh().get_object(Bucket=self._bucket, Key=key)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code not in self._EXPIRED_CODES:
+                raise
+            # credentials expired mid-run: refresh once and retry this object
+            logger.info("credentials expired mid-fetch; refreshing and retrying")
+            self._s3 = self._create_client()
+            resp = self._s3.get_object(Bucket=self._bucket, Key=key)
         data = resp["Body"].read()
         elapsed = time.perf_counter() - t0
         return data, {
@@ -403,11 +593,30 @@ class S3AuthClient:
             raw, _ = self._fetch_day(network, station, yr, doy, suffix=suffix)
             return raw
 
+        # submission (day) order, not as_completed — deterministic output.
+        # Same failure contract as S3OpenClient: 404 tolerated per day,
+        # real errors raise FetchError, all-missing raises NoDataError.
+        missing: list[str] = []
+        failures: list[tuple[str, str, str]] = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(_dl, d): d for d in days}
-            for f in as_completed(futs):
+            futs = [(pool.submit(_dl, d), d) for d in days]
+            for f, d in futs:
+                label = f"{network}.{station} {d}"
                 try:
                     chunks.append(f.result())
-                except Exception:
-                    logger.warning("auth fetch failed", exc_info=True)
+                except ClientError as e:
+                    code = e.response.get("Error", {}).get("Code", "")
+                    status = e.response.get("ResponseMetadata", {}).get(
+                        "HTTPStatusCode"
+                    )
+                    if code in ("NoSuchKey", "404") or status == 404:
+                        missing.append(label)
+                    else:
+                        failures.append((label, code or type(e).__name__, str(e)))
+                except Exception as e:
+                    failures.append((label, type(e).__name__, str(e)))
+        if failures:
+            raise FetchError(failures, fetched=len(chunks), missing=missing)
+        if not chunks and not kwargs.get("missing_ok", False):
+            raise NoDataError(missing or [f"{network}.{station}"])
         return b"".join(chunks)

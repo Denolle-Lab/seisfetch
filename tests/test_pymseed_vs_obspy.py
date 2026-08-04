@@ -22,7 +22,7 @@ def main():
 
     print(f"Downloaded {len(raw_bytes) / 1024 / 1024:.2f} MB in {t_dl:.2f}s")
 
-    with open("test_local.mseed", "wb") as f:
+    with open("bench.mseed", "wb") as f:
         f.write(raw_bytes)
 
     print("\n--- Method 1: seisfetch (pymseed) from memory ---")
@@ -45,7 +45,7 @@ def main():
 
     print("\n--- Method 3: obspy from local disk file ---")
     t0 = time.perf_counter()
-    st_file = obspy.read("test_local.mseed")
+    st_file = obspy.read("bench.mseed")
     if len(st_file) > 1:
         st_file.merge(fill_value="latest")
     data_file = st_file[0].data if len(st_file) > 0 else np.array([])

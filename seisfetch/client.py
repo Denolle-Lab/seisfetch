@@ -116,15 +116,45 @@ class SeisfetchClient:
         endtime=None,
         location="*",
         channel="*",
+        trim=True,
         **kwargs,
     ):
-        """Fetch → parse (pymseed) → TraceBundle of numpy arrays."""
+        """Fetch → parse (pymseed) → TraceBundle of numpy arrays.
+
+        S3 archives store whole day objects, so ``get_raw`` may return more
+        than the requested window; with ``trim=True`` (default) the parsed
+        bundle is cut sample-precisely to [starttime, endtime]. Pass
+        ``trim=False`` for the historical whole-object behavior.
+        """
+        import fnmatch
+
         from seisfetch.convert import TraceBundle, parse_mseed
+        from seisfetch.utils import to_epoch
 
         raw = self.get_raw(
             network, station, starttime, endtime, location, channel, **kwargs
         )
-        return parse_mseed(raw) if raw else TraceBundle()
+        bundle = parse_mseed(raw) if raw else TraceBundle()
+        # honor the channel/location request after parse: EarthScope
+        # station-day objects carry EVERY channel regardless of what was
+        # asked (harmless no-op for per-channel archives)
+        if len(bundle) and (channel not in ("*", None) or location not in ("*", None)):
+            kept = [
+                t
+                for t in bundle.traces
+                if fnmatch.fnmatch(t.channel, channel or "*")
+                and (location in ("*", None) or t.location == (location or ""))
+            ]
+            bundle = TraceBundle(kept)
+        if trim and len(bundle) and starttime is not None:
+            start_ns = int(to_epoch(starttime) * 1e9)
+            end_ns = (
+                int(to_epoch(endtime) * 1e9)
+                if endtime is not None
+                else start_ns + int(86400 * 1e9)
+            )
+            bundle = bundle.trim(start_ns, end_ns)
+        return bundle
 
     # ── Optional: xarray Dataset ──────────────────────────────────────── #
 
@@ -136,6 +166,7 @@ class SeisfetchClient:
         endtime=None,
         location="*",
         channel="*",
+        trim=True,
         **kwargs,
     ):
         """Fetch → parse → xarray.Dataset. **Requires xarray.**"""
@@ -143,7 +174,14 @@ class SeisfetchClient:
 
         return bundle_to_xarray(
             self.get_numpy(
-                network, station, starttime, endtime, location, channel, **kwargs
+                network,
+                station,
+                starttime,
+                endtime,
+                location,
+                channel,
+                trim=trim,
+                **kwargs,
             )
         )
 

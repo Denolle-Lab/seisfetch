@@ -1,0 +1,21 @@
+# Benchmark container: seisfetch + obspy in one image so the suites can
+# compare both stacks under cgroup limits (Fargate-/Lambda-class).
+#   docker build -f benchmarks/docker/Dockerfile.bench -t seisfetch-bench .
+FROM python:3.12-slim
+
+# gcc is needed ONLY to build obspy: it ships no linux/aarch64 wheels
+# (x86_64 only), so on arm64 (Graviton Fargate/Lambda) it must compile from
+# source. seisfetch + pymseed install from wheels with no toolchain — that
+# asymmetry is itself a report finding.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /repo
+COPY pyproject.toml README.md THIRD_PARTY_NOTICES.md LICENSE ./
+COPY seisfetch ./seisfetch
+COPY tests ./tests
+COPY benchmarks ./benchmarks
+
+RUN pip install --no-cache-dir . obspy
+
+ENTRYPOINT ["python", "-m", "benchmarks.runner"]

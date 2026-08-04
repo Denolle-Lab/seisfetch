@@ -77,7 +77,7 @@ class SeismicDataSource:
             self._ds = bundle_or_dataset
         else:
             raise TypeError(
-                f"Expected TraceBundle or xr.Dataset, " f"got {type(bundle_or_dataset)}"
+                f"Expected TraceBundle or xr.Dataset, got {type(bundle_or_dataset)}"
             )
 
         # Build a single DataArray with dims [time, variable, sample]
@@ -216,7 +216,7 @@ class SeismicDataFrameSource:
             self._ds = bundle_or_dataset
         else:
             raise TypeError(
-                f"Expected TraceBundle or xr.Dataset, " f"got {type(bundle_or_dataset)}"
+                f"Expected TraceBundle or xr.Dataset, got {type(bundle_or_dataset)}"
             )
 
         self._station_coords = station_coords or {}

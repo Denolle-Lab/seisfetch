@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
+from seisfetch.exceptions import FDSNError, FetchError
 from seisfetch.utils import to_epoch, to_isoformat
 
 logger = logging.getLogger(__name__)
@@ -99,27 +100,44 @@ def _make_session(user=None, password=None, timeout=120.0):
 
 
 def _http_get(
-    url, params, session=None, use_httpx=False, user=None, password=None, timeout=120.0
+    url,
+    params,
+    session=None,
+    use_httpx=False,
+    user=None,
+    password=None,
+    timeout=120.0,
+    nodata_statuses=(204,),
 ) -> bytes:
+    """GET with typed errors: statuses in ``nodata_statuses`` mean "no data"
+    and return ``b""``; any other non-2xx raises :class:`FDSNError`."""
     if use_httpx and session:
         resp = session.get(url, params=params)
-        if resp.status_code == 204:
+        if resp.status_code in nodata_statuses:
             return b""
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise FDSNError(resp.status_code, str(resp.url), resp.text[:200])
         return resp.content
     else:
+        import urllib.error
         import urllib.parse
         import urllib.request
 
         qs = urllib.parse.urlencode(params)
-        req = urllib.request.Request(f"{url}?{qs}")
+        full = f"{url}?{qs}"
+        req = urllib.request.Request(full)
         if user and password:
             import base64
 
             cred = base64.b64encode(f"{user}:{password}".encode()).decode()
             req.add_header("Authorization", f"Basic {cred}")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code in nodata_statuses:
+                return b""
+            raise FDSNError(e.code, full) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -180,10 +198,18 @@ class FDSNClient:
             raise ValueError("starttime is required")
         if endtime is None:
             endtime = to_epoch(starttime) + 86400
+        # FDSN semantics: "*" is a real wildcard and passes through;
+        # "" (blank location) is spelled "--" on the wire. The old code
+        # rewrote "*" to "--", silently excluding every location-coded
+        # channel (critique B3).
+        if location == "":
+            loc_param = "--"
+        else:
+            loc_param = location
         params = {
             "net": network,
             "sta": station,
-            "loc": location.replace("*", "--") if location == "*" else location,
+            "loc": loc_param,
             "cha": channel,
             "start": to_isoformat(starttime),
             "end": to_isoformat(endtime),
@@ -192,6 +218,7 @@ class FDSNClient:
         }
         params.update(kwargs)
         t0 = time.perf_counter()
+        # we request nodata=404, so 404 means "no data", not "bad URL"
         raw = _http_get(
             self._dataselect_url,
             params,
@@ -200,6 +227,7 @@ class FDSNClient:
             self._user,
             self._password,
             self._timeout,
+            nodata_statuses=(204, 404),
         )
         elapsed = time.perf_counter() - t0
         if raw:
@@ -290,16 +318,30 @@ class FDSNClient:
 
 
 class FDSNMultiClient:
-    """Fan-out raw miniSEED downloads to multiple FDSN providers."""
+    """Multi-provider FDSN downloads.
+
+    ``strategy="failover"`` (default) queries providers IN ORDER and returns
+    the first non-empty result — one request against one community service
+    at a time. ``strategy="broadcast"`` (the old default) queries every
+    provider concurrently and concatenates all results; it multiplies load
+    on shared FDSN services and produces duplicate records when several
+    providers archive the same network, so opt in only when you really want
+    a cross-archive union.
+    """
 
     DEFAULT_PROVIDERS = ("EARTHSCOPE", "GEOFON", "ORFEUS", "INGV")
 
-    def __init__(self, providers=None, max_workers=4, timeout=120.0):
+    def __init__(
+        self, providers=None, max_workers=4, timeout=120.0, strategy="failover"
+    ):
         if providers is None:
             providers = list(self.DEFAULT_PROVIDERS)
+        if strategy not in ("failover", "broadcast"):
+            raise ValueError("strategy must be 'failover' or 'broadcast'")
         self._provider_names = list(providers)
         self._clients = [FDSNClient(provider=p, timeout=timeout) for p in providers]
         self._max_workers = max_workers
+        self._strategy = strategy
 
     @property
     def providers(self):
@@ -315,22 +357,41 @@ class FDSNMultiClient:
         endtime=None,
         **kwargs,
     ) -> bytes:
-        chunks = []
-
         def _fetch(c):
             return c.get_raw(
                 network, station, location, channel, starttime, endtime, **kwargs
             )
 
+        failures: list[tuple[str, str, str]] = []
+
+        if self._strategy == "failover":
+            for c in self._clients:
+                try:
+                    raw = _fetch(c)
+                except Exception as e:
+                    failures.append((c.provider, type(e).__name__, str(e)))
+                    logger.warning("[multi] %s failed: %s", c.provider, e)
+                    continue
+                if raw:
+                    return raw
+            if failures and len(failures) == len(self._clients):
+                raise FetchError(failures)
+            return b""
+
+        # broadcast: provider (submission) order — deterministic output
+        chunks = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = {pool.submit(_fetch, c): c for c in self._clients}
-            for f in as_completed(futs):
+            futs = [(pool.submit(_fetch, c), c) for c in self._clients]
+            for f, c in futs:
                 try:
                     raw = f.result()
                     if raw:
                         chunks.append(raw)
-                except Exception:
-                    logger.warning("[multi] %s failed", futs[f].provider, exc_info=True)
+                except Exception as e:
+                    failures.append((c.provider, type(e).__name__, str(e)))
+                    logger.warning("[multi] %s failed: %s", c.provider, e)
+        if not chunks and failures:
+            raise FetchError(failures)
         return b"".join(chunks)
 
     def close(self):
@@ -429,15 +490,18 @@ class ObspyFDSNClient:
             st = self._client.get_waveforms(
                 network, station, loc, cha, t1, t2, **kwargs
             )
-        except Exception:
-            logger.warning(
-                "[obspy-fdsn] %s.%s no data from %s",
-                network,
-                station,
-                self._provider_name,
-                exc_info=True,
-            )
-            return b""
+        except Exception as e:
+            # only genuine "no data" maps to empty bytes; anything else
+            # (auth, transport, server errors) propagates
+            if type(e).__name__ == "FDSNNoDataException":
+                logger.info(
+                    "[obspy-fdsn] %s.%s: no data from %s",
+                    network,
+                    station,
+                    self._provider_name,
+                )
+                return b""
+            raise
         elapsed = __import__("time").perf_counter() - t0
         buf = _io.BytesIO()
         st.write(buf, format="MSEED")

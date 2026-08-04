@@ -34,16 +34,16 @@ def test_one(client, net, sta, loc, cha, date):
     """Download + parse with both seisfetch and obspy; return results dict."""
     nslc = f"{net}.{sta}.{loc}.{cha}"
     dc = route_network(net)
-    end = f"{date[:4]}-{int(date[5:7]):02d}-{int(date[8:10])+1:02d}"
-    print(f"\n{'='*60}")
+    end = f"{date[:4]}-{int(date[5:7]):02d}-{int(date[8:10]) + 1:02d}"
+    print(f"\n{'=' * 60}")
     print(f"  {nslc}  {date}  →  {dc}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Download
     t0 = time.perf_counter()
     raw = client.get_raw(net, sta, date, end, channel=cha, location=loc)
     t_dl = time.perf_counter() - t0
-    print(f"  Download:  {t_dl:.2f}s  ({len(raw)/1e6:.1f} MB)")
+    print(f"  Download:  {t_dl:.2f}s  ({len(raw) / 1e6:.1f} MB)")
 
     if not raw:
         print("  *** NO DATA ***")
@@ -111,9 +111,9 @@ def main():
         return
 
     # ---- Summary ----------------------------------------------------------
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     all_ok = True
     for r in results:
         status = "PASS" if r["identical"] else "FAIL"

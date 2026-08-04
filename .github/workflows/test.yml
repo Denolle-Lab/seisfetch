@@ -1,0 +1,62 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # pinned to the same ruff as pre-commit/pixi — unpinned CI ruff
+      # drifted ahead and failed format --check on style changes
+      - run: pip install ruff==0.15.9
+      - run: ruff check seisfetch tests benchmarks
+      - run: ruff format --check seisfetch tests benchmarks
+
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.9" }
+          - { os: ubuntu-latest, python: "3.10" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: macos-latest, python: "3.12" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install with dev extras
+        run: pip install -e ".[dev]"
+      - name: Unit tests (offline)
+        run: pytest tests -m "not integration" -q
+
+  # informational: does the NEXT pymseed break us? Never blocks merges.
+  pymseed-next:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with latest pymseed (ignore our pin)
+        run: |
+          pip install -e ".[dev]"
+          pip install --upgrade pymseed
+          python -c "import pymseed; print('pymseed', pymseed.__version__)"
+      - name: Parse-path tests against latest pymseed
+        run: >
+          pytest tests/test_convert.py tests/test_segments_api.py
+          tests/test_correctness_majors.py
+          tests/precision/test_parse_identity.py -q

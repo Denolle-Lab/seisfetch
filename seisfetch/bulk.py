@@ -59,14 +59,16 @@ class BulkResult:
     bundle: Optional[object] = None  # TraceBundle, filled lazily
     elapsed_s: float = 0.0
     error: Optional[str] = None
+    #: bytes fetched, preserved even when raw is dropped (keep_raw=False)
+    nbytes_fetched: int = 0
 
     @property
     def success(self) -> bool:
-        return self.error is None and len(self.raw) > 0
+        return self.error is None and self.nbytes > 0
 
     @property
     def nbytes(self) -> int:
-        return len(self.raw)
+        return self.nbytes_fetched or len(self.raw)
 
     @property
     def throughput_mbps(self) -> float:
@@ -110,7 +112,7 @@ class BulkSummary:
     def __repr__(self) -> str:
         return (
             f"BulkSummary({self.succeeded}/{self.total} ok, "
-            f"{self.total_bytes/1e6:.1f} MB)"
+            f"{self.total_bytes / 1e6:.1f} MB)"
         )
 
 
@@ -236,10 +238,14 @@ def fetch_bulk_raw(
                 return BulkResult(
                     request=req, elapsed_s=elapsed, error="no data returned"
                 )
-            return BulkResult(request=req, raw=raw, elapsed_s=elapsed)
+            return BulkResult(
+                request=req, raw=raw, elapsed_s=elapsed, nbytes_fetched=len(raw)
+            )
         except Exception as e:
             elapsed = time.perf_counter() - t0
-            return BulkResult(request=req, elapsed_s=elapsed, error=str(e))
+            return BulkResult(
+                request=req, elapsed_s=elapsed, error=f"{type(e).__name__}: {e}"
+            )
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch_one, r): r for r in requests}
@@ -251,6 +257,9 @@ def fetch_bulk_raw(
             if progress:
                 progress(completed, total, result)
 
+    # deterministic result order (submission order); progress above stays live
+    order = {id(r): i for i, r in enumerate(requests)}
+    summary.results.sort(key=lambda res: order.get(id(res.request), len(order)))
     return summary
 
 
@@ -259,6 +268,7 @@ def fetch_bulk_numpy(
     client,
     max_workers: int = 16,
     progress: Optional[ProgressCallback] = _default_progress,
+    keep_raw: bool = False,
 ) -> BulkSummary:
     """
     Fetch and parse miniSEED for many requests in parallel.
@@ -295,10 +305,24 @@ def fetch_bulk_numpy(
                 )
             bundle = parse_mseed(raw)
             elapsed = time.perf_counter() - t0
-            return BulkResult(request=req, raw=raw, bundle=bundle, elapsed_s=elapsed)
+            nbytes = len(raw)
+            if not keep_raw:
+                # memory hygiene (2026-08 critique): a 1000-day-file job used
+                # to hold ~10-30 GB of raw bytes ALONGSIDE the parsed
+                # bundles; drop the bytes once decoded unless asked
+                raw = b""
+            return BulkResult(
+                request=req,
+                raw=raw,
+                bundle=bundle,
+                elapsed_s=elapsed,
+                nbytes_fetched=nbytes,
+            )
         except Exception as e:
             return BulkResult(
-                request=req, elapsed_s=time.perf_counter() - t0, error=str(e)
+                request=req,
+                elapsed_s=time.perf_counter() - t0,
+                error=f"{type(e).__name__}: {e}",
             )
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -311,4 +335,42 @@ def fetch_bulk_numpy(
             if progress:
                 progress(completed, total, result)
 
+    # deterministic result order (submission order); progress above stays live
+    order = {id(r): i for i, r in enumerate(requests)}
+    summary.results.sort(key=lambda res: order.get(id(res.request), len(order)))
     return summary
+
+
+def iter_bulk_raw(
+    requests: list[BulkRequest],
+    client,
+    max_workers: int = 16,
+):
+    """Streaming variant of :func:`fetch_bulk_raw`: yield each
+    :class:`BulkResult` as it completes instead of accumulating a
+    :class:`BulkSummary` in memory. The caller owns persistence — write
+    each result to disk/S3 and let it go. Yield order is completion order.
+    """
+
+    def _fetch_one(req: BulkRequest) -> BulkResult:
+        t0 = time.perf_counter()
+        try:
+            raw = client.get_raw(**req.to_dict())
+            elapsed = time.perf_counter() - t0
+            if not raw:
+                return BulkResult(
+                    request=req, elapsed_s=elapsed, error="no data returned"
+                )
+            return BulkResult(
+                request=req, raw=raw, elapsed_s=elapsed, nbytes_fetched=len(raw)
+            )
+        except Exception as e:
+            elapsed = time.perf_counter() - t0
+            return BulkResult(
+                request=req, elapsed_s=elapsed, error=f"{type(e).__name__}: {e}"
+            )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [pool.submit(_fetch_one, r) for r in requests]
+        for fut in as_completed(futures):
+            yield fut.result()

@@ -64,8 +64,17 @@ def to_isoformat(t) -> str:
 
 
 def date_range(start, end) -> Iterator[date]:
+    """Days covering the HALF-OPEN interval [start, end).
+
+    A request ending exactly at midnight does not include the following
+    day: ``date_range("2022-01-02", "2022-01-03")`` yields only Jan 2.
+    (The old inclusive behavior made every default one-day request fetch
+    two day objects.)
+    """
     d_start = to_datetime(start).date()
-    d_end = to_datetime(end).date()
+    d_end = (to_datetime(end) - timedelta(microseconds=1)).date()
+    if d_end < d_start:
+        d_end = d_start
     d = d_start
     while d <= d_end:
         yield d
