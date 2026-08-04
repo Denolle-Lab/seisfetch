@@ -318,16 +318,30 @@ class FDSNClient:
 
 
 class FDSNMultiClient:
-    """Fan-out raw miniSEED downloads to multiple FDSN providers."""
+    """Multi-provider FDSN downloads.
+
+    ``strategy="failover"`` (default) queries providers IN ORDER and returns
+    the first non-empty result — one request against one community service
+    at a time. ``strategy="broadcast"`` (the old default) queries every
+    provider concurrently and concatenates all results; it multiplies load
+    on shared FDSN services and produces duplicate records when several
+    providers archive the same network, so opt in only when you really want
+    a cross-archive union.
+    """
 
     DEFAULT_PROVIDERS = ("EARTHSCOPE", "GEOFON", "ORFEUS", "INGV")
 
-    def __init__(self, providers=None, max_workers=4, timeout=120.0):
+    def __init__(
+        self, providers=None, max_workers=4, timeout=120.0, strategy="failover"
+    ):
         if providers is None:
             providers = list(self.DEFAULT_PROVIDERS)
+        if strategy not in ("failover", "broadcast"):
+            raise ValueError("strategy must be 'failover' or 'broadcast'")
         self._provider_names = list(providers)
         self._clients = [FDSNClient(provider=p, timeout=timeout) for p in providers]
         self._max_workers = max_workers
+        self._strategy = strategy
 
     @property
     def providers(self):
@@ -343,15 +357,29 @@ class FDSNMultiClient:
         endtime=None,
         **kwargs,
     ) -> bytes:
-        chunks = []
-
         def _fetch(c):
             return c.get_raw(
                 network, station, location, channel, starttime, endtime, **kwargs
             )
 
-        # provider (submission) order, not as_completed — deterministic output
         failures: list[tuple[str, str, str]] = []
+
+        if self._strategy == "failover":
+            for c in self._clients:
+                try:
+                    raw = _fetch(c)
+                except Exception as e:
+                    failures.append((c.provider, type(e).__name__, str(e)))
+                    logger.warning("[multi] %s failed: %s", c.provider, e)
+                    continue
+                if raw:
+                    return raw
+            if failures and len(failures) == len(self._clients):
+                raise FetchError(failures)
+            return b""
+
+        # broadcast: provider (submission) order — deterministic output
+        chunks = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             futs = [(pool.submit(_fetch, c), c) for c in self._clients]
             for f, c in futs:

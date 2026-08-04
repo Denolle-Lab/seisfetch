@@ -54,6 +54,23 @@ Trace per segment, no masked arrays — `merge=1` restores the old behavior);
 error instead of silently diverging from the obspy chain. 13 regression
 tests in tests/test_correctness_majors.py.
 
+**Operations pass resolved 2026-08-04**: boto3 clients carry adaptive
+retries (max 5 attempts), explicit connect/read timeouts (10 s / 60 s — the
+unreachable-bucket multi-minute hang is bounded now), and a connection pool
+sized to the thread fan-out; each S3 client owns ONE shared executor
+(context-manager closable) instead of a per-call pool multiplied by bulk
+fan-out; `list_networks`/`list_stations` paginate (tested past the 1000-key
+truncation); BG routes to NCEDC; anonymous-EarthScope AccessDenied failures
+carry a backend='s3_auth' hint; `S3AuthClient` refreshes EarthScope
+credentials on a 45-minute clock and retries once on ExpiredToken;
+`FDSNMultiClient` defaults to sequential FAILOVER (first non-empty provider
+wins, verified the second provider is never called) with broadcast as an
+explicit opt-in; `fetch_bulk_numpy` drops raw bytes after parsing by default
+(`keep_raw=True` restores) with byte accounting preserved, and
+`iter_bulk_raw` streams results for campaign-scale jobs; `get_numpy` filters
+station-day objects to the requested channel/location after parse. 12 tests
+in tests/test_operations.py.
+
 ---
 
 ## Blockers

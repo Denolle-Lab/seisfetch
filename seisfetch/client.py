@@ -126,6 +126,8 @@ class SeisfetchClient:
         bundle is cut sample-precisely to [starttime, endtime]. Pass
         ``trim=False`` for the historical whole-object behavior.
         """
+        import fnmatch
+
         from seisfetch.convert import TraceBundle, parse_mseed
         from seisfetch.utils import to_epoch
 
@@ -133,6 +135,17 @@ class SeisfetchClient:
             network, station, starttime, endtime, location, channel, **kwargs
         )
         bundle = parse_mseed(raw) if raw else TraceBundle()
+        # honor the channel/location request after parse: EarthScope
+        # station-day objects carry EVERY channel regardless of what was
+        # asked (harmless no-op for per-channel archives)
+        if len(bundle) and (channel not in ("*", None) or location not in ("*", None)):
+            kept = [
+                t
+                for t in bundle.traces
+                if fnmatch.fnmatch(t.channel, channel or "*")
+                and (location in ("*", None) or t.location == (location or ""))
+            ]
+            bundle = TraceBundle(kept)
         if trim and len(bundle) and starttime is not None:
             start_ns = int(to_epoch(starttime) * 1e9)
             end_ns = (
