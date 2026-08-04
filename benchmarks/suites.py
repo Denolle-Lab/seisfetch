@@ -30,9 +30,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# note: a former second 11 MB file (tests/test_local.mseed) was the SAME
+# git blob as bench.mseed under another name — removed (critique hygiene)
 PARSE_FILES = [
     "tests/bench.mseed",
-    "tests/test_local.mseed",
     "tests/fixtures/gap_3seg.mseed",
     "tests/fixtures/enc_float32.mseed",
 ]

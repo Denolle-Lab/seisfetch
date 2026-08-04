@@ -592,6 +592,11 @@ pixi run test-int
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and licenses.
 
+Benchmarks with plots: [benchmarks/RESULTS.md](benchmarks/RESULTS.md) (or the
+self-contained [RESULTS.html](benchmarks/RESULTS.html)). Changes:
+[CHANGELOG.md](CHANGELOG.md). Response-removal tutorial:
+[notebooks/05_response_removal.ipynb](notebooks/05_response_removal.ipynb).
+
 ## Citation
 
 When using data accessed through `seisfetch`:

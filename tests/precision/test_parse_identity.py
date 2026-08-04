@@ -19,7 +19,6 @@ from seisfetch.convert import parse_mseed  # noqa: E402
 TESTS = Path(__file__).parent.parent
 FIXTURE_FILES = [
     TESTS / "bench.mseed",
-    TESTS / "test_local.mseed",
     TESTS / "fixtures" / "gap_3seg.mseed",
     TESTS / "fixtures" / "overlap.mseed",
     TESTS / "fixtures" / "enc_float32.mseed",

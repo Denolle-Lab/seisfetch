@@ -16,14 +16,298 @@ from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BENCH_DIR / "results"
+PLOTS_DIR = BENCH_DIR / "plots"
 OUTPUT = BENCH_DIR / "RESULTS.md"
+OUTPUT_HTML = BENCH_DIR / "RESULTS.html"
+
+# validated categorical palette (fixed slot order; dataviz-checked)
+C_SF = "#2a78d6"  # seisfetch
+C_OB = "#eb6834"  # obspy
+C_BARE = "#1baf7a"  # bare pymseed
 
 HEADER = """\
 # seisfetch benchmark results
 
 Auto-generated from `benchmarks/results/*.json` by
 `pixi run python -m benchmarks.render_results` — do not edit by hand.
+A self-contained HTML version with the same content lives at
+[`RESULTS.html`](RESULTS.html).
 """
+
+PLOT_SECTION = """\
+## Plots
+
+The seisfetch vs obspy comparison at a glance (latest run per machine;
+SVGs regenerate with the tables):
+
+![Parse time](plots/parse.svg)
+
+![Cold import](plots/cold_import.svg)
+
+![Parse memory](plots/memory.svg)
+
+![Installed footprint](plots/footprint.svg)
+"""
+
+
+def _latest_per_tag(payloads: list[dict]) -> dict[str, dict]:
+    """Latest run per machine tag, in a stable display order."""
+    order = ["m1-native", "fargate-class", "lambda-1g", "lambda-512m"]
+    latest: dict[str, dict] = {}
+    for p in payloads:
+        tag = p.get("machine", {}).get("tag", "?")
+        if tag not in latest or p.get("timestamp", "") > latest[tag].get(
+            "timestamp", ""
+        ):
+            latest[tag] = p
+    ordered = {t: latest[t] for t in order if t in latest}
+    for t, p in latest.items():
+        ordered.setdefault(t, p)
+    return ordered
+
+
+def _grouped_bars(ax, tags, series, title, ylabel):
+    """Thin grouped bars, direct value labels, recessive frame."""
+    import numpy as np
+
+    x = np.arange(len(tags))
+    n = len(series)
+    width = 0.8 / n
+    for i, (label, values, color) in enumerate(series):
+        pos = x - 0.4 + width * (i + 0.5)
+        bars = ax.bar(pos, values, width * 0.9, label=label, color=color)
+        for b, v in zip(bars, values):
+            if v is not None and v == v:
+                ax.annotate(
+                    f"{v:g}",
+                    (b.get_x() + b.get_width() / 2, v),
+                    ha="center",
+                    va="bottom",
+                    fontsize=7.5,
+                    color="#444444",
+                )
+    ax.set_xticks(x, tags, fontsize=8.5)
+    ax.set_ylabel(ylabel, fontsize=9)
+    ax.set_title(title, fontsize=10)
+    ax.legend(frameon=False, fontsize=8.5)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="y", alpha=0.25, linewidth=0.5)
+    ax.set_axisbelow(True)
+
+
+def render_plots(payloads: list[dict]) -> bool:
+    """Write benchmarks/plots/*.svg. Returns False when matplotlib is
+    absent (plots are a dev nicety, never a core dependency)."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return False
+
+    latest = _latest_per_tag(payloads)
+    tags = list(latest)
+    PLOTS_DIR.mkdir(exist_ok=True)
+
+    def suite(tag, name):
+        return latest[tag].get("suites", {}).get(name, {})
+
+    def make(fname, title, ylabel, series):
+        fig, ax = plt.subplots(figsize=(6.8, 2.9), dpi=110)
+        _grouped_bars(ax, tags, series, title, ylabel)
+        fig.tight_layout()
+        fig.savefig(PLOTS_DIR / fname, format="svg", metadata={"Date": None})
+        plt.close(fig)
+
+    day = "tests/bench.mseed"
+    make(
+        "parse.svg",
+        "Parse 11 MB Steim2 channel-day (min of 5, warm)",
+        "ms",
+        [
+            (
+                "seisfetch",
+                [
+                    suite(t, "parse").get(day, {}).get("seisfetch", {}).get("min_ms")
+                    for t in tags
+                ],
+                C_SF,
+            ),
+            (
+                "obspy",
+                [
+                    suite(t, "parse").get(day, {}).get("obspy", {}).get("min_ms")
+                    for t in tags
+                ],
+                C_OB,
+            ),
+            (
+                "bare pymseed",
+                [
+                    suite(t, "parse").get(day, {}).get("pymseed_bare", {}).get("min_ms")
+                    for t in tags
+                ],
+                C_BARE,
+            ),
+        ],
+    )
+    make(
+        "cold_import.svg",
+        "Cold import (fresh interpreter, min of 5)",
+        "s",
+        [
+            (
+                "seisfetch",
+                [
+                    suite(t, "cold_import").get("seisfetch", {}).get("min_s")
+                    for t in tags
+                ],
+                C_SF,
+            ),
+            (
+                "obspy",
+                [suite(t, "cold_import").get("obspy", {}).get("min_s") for t in tags],
+                C_OB,
+            ),
+        ],
+    )
+    make(
+        "memory.svg",
+        "Parse memory, 11 MB day file (tracemalloc peak)",
+        "MB",
+        [
+            (
+                "seisfetch",
+                [
+                    suite(t, "memory").get("seisfetch", {}).get("tracemalloc_peak_mb")
+                    for t in tags
+                ],
+                C_SF,
+            ),
+            (
+                "obspy",
+                [
+                    suite(t, "memory").get("obspy", {}).get("tracemalloc_peak_mb")
+                    for t in tags
+                ],
+                C_OB,
+            ),
+        ],
+    )
+    foot_tags = [t for t in tags if suite(t, "footprint")]
+    if foot_tags:
+        fig, ax = plt.subplots(figsize=(4.4, 2.9), dpi=110)
+        _grouped_bars(
+            ax,
+            foot_tags,
+            [
+                (
+                    "seisfetch core",
+                    [
+                        suite(t, "footprint")
+                        .get("seisfetch_core", {})
+                        .get("installed_mb")
+                        for t in foot_tags
+                    ],
+                    C_SF,
+                ),
+                (
+                    "obspy",
+                    [
+                        suite(t, "footprint").get("obspy", {}).get("installed_mb")
+                        for t in foot_tags
+                    ],
+                    C_OB,
+                ),
+            ],
+            "Installed footprint (fresh venv)",
+            "MB",
+        )
+        ax.axhline(250, color="#777777", lw=0.8, ls=":")
+        ax.annotate(
+            "AWS Lambda layer limit (250 MB)",
+            (0.02, 0.88),
+            xycoords="axes fraction",
+            fontsize=7.5,
+            color="#555555",
+        )
+        fig.tight_layout()
+        fig.savefig(PLOTS_DIR / "footprint.svg", format="svg", metadata={"Date": None})
+        plt.close(fig)
+    return True
+
+
+def render_html(md_text: str) -> None:
+    """Self-contained HTML twin of RESULTS.md: tables + inlined SVGs.
+
+    Stdlib-only conversion (headers, tables, images, code) — no markdown
+    library, no new dependencies."""
+    import html as html_mod
+    import re
+
+    def inline_img(m):
+        rel = m.group(2)
+        path = BENCH_DIR / rel
+        if path.exists():
+            svg = path.read_text().replace(chr(35), "%23")
+            return (
+                f'<figure><img alt="{m.group(1)}" '
+                f'src="data:image/svg+xml;utf8,{svg}"/></figure>'
+            )
+        return ""
+
+    lines_out = [
+        """<!doctype html><meta charset="utf-8">
+<title>seisfetch benchmarks</title>
+<style>
+body{font:15px/1.55 -apple-system,system-ui,sans-serif;max-width:60rem;
+margin:2rem auto;padding:0 1rem;color:#1c2326;background:#fbfbfa}
+table{border-collapse:collapse;font-size:.85rem;margin:.8rem 0;
+font-variant-numeric:tabular-nums}
+th{text-align:left;border-bottom:2px solid #d8ddda;padding:.3rem .7rem .3rem 0}
+td{border-bottom:1px solid #e4e8e5;padding:.3rem .7rem .3rem 0}
+code{background:#eef0ee;padding:.08em .3em;border-radius:3px;font-size:.85em}
+h1,h2,h3{line-height:1.25}figure{margin:1rem 0}img{max-width:100%}
+</style>"""
+    ]
+    in_table = False
+    for line in md_text.splitlines():
+        img = re.match(r"!\[([^\]]*)\]\(([^)]+)\)", line.strip())
+        if img:
+            lines_out.append(inline_img(img))
+            continue
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if all(set(c) <= {"-", " ", ":"} and c for c in cells):
+                continue  # separator row
+            tag = "th" if not in_table else "td"
+            if not in_table:
+                lines_out.append("<table>")
+                in_table = True
+            row = "".join(
+                f"<{tag}>{html_mod.escape(c).replace('`', '')}</{tag}>" for c in cells
+            )
+            lines_out.append(f"<tr>{row}</tr>")
+            continue
+        if in_table:
+            lines_out.append("</table>")
+            in_table = False
+        if line.startswith("### "):
+            lines_out.append(f"<h3>{html_mod.escape(line[4:])}</h3>")
+        elif line.startswith("## "):
+            lines_out.append(f"<h2>{html_mod.escape(line[3:])}</h2>")
+        elif line.startswith("# "):
+            lines_out.append(f"<h1>{html_mod.escape(line[2:])}</h1>")
+        elif line.startswith("- "):
+            lines_out.append(f"<div>&bull; {html_mod.escape(line[2:])}</div>")
+        elif line.strip():
+            text = html_mod.escape(line)
+            text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+            lines_out.append(f"<p>{text}</p>")
+    if in_table:
+        lines_out.append("</table>")
+    OUTPUT_HTML.write_text("\n".join(lines_out))
 
 
 def _fmt(v) -> str:
@@ -181,12 +465,20 @@ def render_run(payload: dict) -> list[str]:
 def main():
     payloads = []
     for path in sorted(RESULTS_DIR.glob("*.json")):
-        payloads.append(json.loads(path.read_text()))
+        payload = json.loads(path.read_text())
+        if "machine" not in payload or "suites" not in payload:
+            # auxiliary result files (e.g. CCF equivalence JSON) are not
+            # benchmark runs — skip instead of rendering an 'unknown' block
+            continue
+        payloads.append(payload)
     payloads.sort(
         key=lambda p: (p.get("machine", {}).get("tag", ""), p.get("timestamp", ""))
     )
 
+    have_plots = render_plots(payloads)
     lines = [HEADER]
+    if have_plots:
+        lines.append(PLOT_SECTION)
     current_tag = None
     for payload in payloads:
         tag = payload.get("machine", {}).get("tag", "unknown")
@@ -197,6 +489,7 @@ def main():
 
     text = "\n".join(lines).rstrip() + "\n"
     OUTPUT.write_text(text)
+    render_html(OUTPUT.read_text())
     print(f"wrote {OUTPUT} ({len(payloads)} result file(s))")
 
 

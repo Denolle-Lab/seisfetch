@@ -161,7 +161,7 @@ CASES = {
 
 def run_table():
     raw = _load()
-    print(f"file: {BENCH.name}  size={len(raw)/1e6:.1f} MB")
+    print(f"file: {BENCH.name}  size={len(raw) / 1e6:.1f} MB")
     from pymseed import MS3TraceList
 
     tl = MS3TraceList.from_buffer(raw, unpack_data=True)
@@ -181,7 +181,7 @@ def run_table():
             t0 = time.perf_counter()
             fn(raw)
             times.append((time.perf_counter() - t0) * 1e3)
-        print(f"{name:<20} {min(times):>9.2f} {sum(times)/len(times):>9.2f}")
+        print(f"{name:<20} {min(times):>9.2f} {sum(times) / len(times):>9.2f}")
 
 
 def run_rss(case: str):
@@ -192,8 +192,8 @@ def run_rss(case: str):
     after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     scale = 1024 if sys.platform == "darwin" else 1  # ru_maxrss: B on mac, KiB on linux
     print(
-        f"{case}: peak RSS {after/1024/scale*1024/1024:.1f} MiB "
-        f"(delta {(after-before)/1024/scale*1024/1024:.1f} MiB)"
+        f"{case}: peak RSS {after / 1024 / scale * 1024 / 1024:.1f} MiB "
+        f"(delta {(after - before) / 1024 / scale * 1024 / 1024:.1f} MiB)"
     )
 
 

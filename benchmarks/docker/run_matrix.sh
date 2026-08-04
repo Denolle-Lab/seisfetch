@@ -9,10 +9,13 @@ cd "$(dirname "$0")/../.."
 
 docker build -f benchmarks/docker/Dockerfile.bench -t seisfetch-bench .
 
+SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
 run() {
   local tag="$1" cpus="$2" mem="$3"
   echo "== ${tag}: --cpus=${cpus} --memory=${mem}"
   docker run --rm --cpus="${cpus}" --memory="${mem}" \
+    -e SEISFETCH_SHA="${SHA}" \
     -v "$(pwd)/benchmarks/results:/repo/benchmarks/results" \
     seisfetch-bench \
     --suite parse,cold_import,memory --tag "${tag}" --limits "${cpus}cpu/${mem}"

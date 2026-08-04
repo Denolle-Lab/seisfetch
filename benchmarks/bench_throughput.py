@@ -307,9 +307,9 @@ def bench_cross_datacenter(n_trials=2):
 
     _header("Summary: Cross-Datacenter")
     print(f"  {'Datacenter':12s} {'Net.Sta':10s} {'Size':>12s} {'Throughput':>12s}")
-    print(f"  {'-'*12:12s} {'-'*10:10s} {'-'*12:12s} {'-'*12:12s}")
+    print(f"  {'-' * 12:12s} {'-' * 10:10s} {'-' * 12:12s} {'-' * 12:12s}")
     for r in results:
-        size_s = f"{r['bytes']/1e6:.1f} MB" if r["bytes"] else "—"
+        size_s = f"{r['bytes'] / 1e6:.1f} MB" if r["bytes"] else "—"
         mbps_s = f"{r['mbps']:.1f} Mbps" if r["mbps"] else "FAILED"
         print(f"  {r['dc']:12s} {r['net']}.{r['sta']:6s} {size_s:>12s} {mbps_s:>12s}")
     return results

@@ -131,7 +131,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/ad/f6/327cdc4a816d257a5321a0a6edfe38411eee0801be2cde9d449f2afa77c8/pymseed-0.8.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/27/67/e04c26116fa13c48a8a33a18ebeca14944e0c3ab77936fb99ac0a409ea7f/pymseed-0.9.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
@@ -285,7 +285,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/00/2d/0bbfe3dd993150d505080106e47bf794eb3a029a4358104e1cc1439994c7/pymseed-0.8.1-cp312-cp312-macosx_10_13_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/e5/22/1a01dfeac870472774ac83b26181373a9d6116b29e8b1b59c4736d444116/pymseed-0.9.3-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
@@ -439,7 +439,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/4a/a9/dbcbcd666c0c582962f3dc64e023c11985c7195fdc10b2e6908da24fc55b/pymseed-0.8.1-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/f1/6280df051c123b3cd4e8676f212aa2fcaa7da2c544603a8d97fcabab0744/pymseed-0.9.3-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
@@ -593,7 +593,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/0b/a9/a68bd8eb3c6d52935234bbeb0abbb7c636fb795337d660d56701b1034869/pymseed-0.8.1-cp312-cp312-win_amd64.whl
+      - pypi: https://files.pythonhosted.org/packages/aa/57/b2e98768273b4c1d202183ef2a2d37301ef0acd0e93301fa4e9399879861/pymseed-0.9.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
@@ -918,7 +918,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fd/7b/122376b1fd3c62c1ed9dc80c931ace4844b3c55407b6fb2d199377c9736f/pydantic-2.13.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5f/97/2aab507d3d00ca626e8e57c1eac6a79e4e5fbcc63eb99733ff55d1717f65/pydantic_core-2.46.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/ad/f6/327cdc4a816d257a5321a0a6edfe38411eee0801be2cde9d449f2afa77c8/pymseed-0.8.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/27/67/e04c26116fa13c48a8a33a18ebeca14944e0c3ab77936fb99ac0a409ea7f/pymseed-0.9.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl
@@ -1145,7 +1145,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fd/7b/122376b1fd3c62c1ed9dc80c931ace4844b3c55407b6fb2d199377c9736f/pydantic-2.13.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ce/8c/af022f0af448d7747c5154288d46b5f2bc5f17366eaa0e23e9aa04d59f3b/pydantic_core-2.46.4-cp312-cp312-macosx_10_12_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/00/2d/0bbfe3dd993150d505080106e47bf794eb3a029a4358104e1cc1439994c7/pymseed-0.8.1-cp312-cp312-macosx_10_13_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/e5/22/1a01dfeac870472774ac83b26181373a9d6116b29e8b1b59c4736d444116/pymseed-0.9.3-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl
@@ -1372,7 +1372,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fd/7b/122376b1fd3c62c1ed9dc80c931ace4844b3c55407b6fb2d199377c9736f/pydantic-2.13.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/19/95/6195171e385007300f0f5574592e467c568becce2d937a0b6804f218bc49/pydantic_core-2.46.4-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/4a/a9/dbcbcd666c0c582962f3dc64e023c11985c7195fdc10b2e6908da24fc55b/pymseed-0.8.1-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/f1/6280df051c123b3cd4e8676f212aa2fcaa7da2c544603a8d97fcabab0744/pymseed-0.9.3-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl
@@ -1626,7 +1626,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fd/7b/122376b1fd3c62c1ed9dc80c931ace4844b3c55407b6fb2d199377c9736f/pydantic-2.13.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/8c/985c1d41ea1107c2534abd9870e4ed5c8e7669b5c308297835c001e7a1c4/pydantic_core-2.46.4-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/0b/a9/a68bd8eb3c6d52935234bbeb0abbb7c636fb795337d660d56701b1034869/pymseed-0.8.1-cp312-cp312-win_amd64.whl
+      - pypi: https://files.pythonhosted.org/packages/aa/57/b2e98768273b4c1d202183ef2a2d37301ef0acd0e93301fa4e9399879861/pymseed-0.9.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl
@@ -9240,10 +9240,10 @@ packages:
   - pkg:pypi/pygments?source=compressed-mapping
   size: 893031
   timestamp: 1774796815820
-- pypi: https://files.pythonhosted.org/packages/00/2d/0bbfe3dd993150d505080106e47bf794eb3a029a4358104e1cc1439994c7/pymseed-0.8.1-cp312-cp312-macosx_10_13_x86_64.whl
+- pypi: https://files.pythonhosted.org/packages/27/67/e04c26116fa13c48a8a33a18ebeca14944e0c3ab77936fb99ac0a409ea7f/pymseed-0.9.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
   name: pymseed
-  version: 0.8.1
-  sha256: 529ea3f177d506deb5fd8d725059b3a3068094f33ab9b5247cb3315b1ce1c799
+  version: 0.9.3
+  sha256: a7c29065831663f664087a09c663c5711038a32aff5bacfedcfc4f7284005340
   requires_dist:
   - cffi>=2.0.0
   - orjson>=3.11.7 ; implementation_name != 'pypy'
@@ -9264,10 +9264,10 @@ packages:
   - twine>=4.0.0 ; extra == 'release'
   - pymseed[dev,docs] ; extra == 'all'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/0b/a9/a68bd8eb3c6d52935234bbeb0abbb7c636fb795337d660d56701b1034869/pymseed-0.8.1-cp312-cp312-win_amd64.whl
+- pypi: https://files.pythonhosted.org/packages/aa/57/b2e98768273b4c1d202183ef2a2d37301ef0acd0e93301fa4e9399879861/pymseed-0.9.3-cp312-cp312-win_amd64.whl
   name: pymseed
-  version: 0.8.1
-  sha256: d02556d24aec862e91e3648a6368100008a45dbfde67199e77c9df737718df5a
+  version: 0.9.3
+  sha256: f1f4170f203db6f15590220c7f9ad37093c66584a802b69ce85d70da40f63b6c
   requires_dist:
   - cffi>=2.0.0
   - orjson>=3.11.7 ; implementation_name != 'pypy'
@@ -9288,10 +9288,10 @@ packages:
   - twine>=4.0.0 ; extra == 'release'
   - pymseed[dev,docs] ; extra == 'all'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/4a/a9/dbcbcd666c0c582962f3dc64e023c11985c7195fdc10b2e6908da24fc55b/pymseed-0.8.1-cp312-cp312-macosx_11_0_arm64.whl
+- pypi: https://files.pythonhosted.org/packages/cd/f1/6280df051c123b3cd4e8676f212aa2fcaa7da2c544603a8d97fcabab0744/pymseed-0.9.3-cp312-cp312-macosx_11_0_arm64.whl
   name: pymseed
-  version: 0.8.1
-  sha256: ce91daa0062460a871f57cf565b982f7d393eb9081ab242bcc26eb9f6b6a9413
+  version: 0.9.3
+  sha256: 67dc48d2981a7aaede4e2dfca86209a2cf1627ef1bff4d52395dd4c52e792b34
   requires_dist:
   - cffi>=2.0.0
   - orjson>=3.11.7 ; implementation_name != 'pypy'
@@ -9312,10 +9312,10 @@ packages:
   - twine>=4.0.0 ; extra == 'release'
   - pymseed[dev,docs] ; extra == 'all'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/ad/f6/327cdc4a816d257a5321a0a6edfe38411eee0801be2cde9d449f2afa77c8/pymseed-0.8.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+- pypi: https://files.pythonhosted.org/packages/e5/22/1a01dfeac870472774ac83b26181373a9d6116b29e8b1b59c4736d444116/pymseed-0.9.3-cp312-cp312-macosx_10_13_x86_64.whl
   name: pymseed
-  version: 0.8.1
-  sha256: 2d97fe17019644ebe68f21c2e8b3d74d758131b4d521275250c28e6032472fdd
+  version: 0.9.3
+  sha256: b5e25be1d97b3dfa13f6e5925ccec07709b69a125393b376858eb327dd4cdf36
   requires_dist:
   - cffi>=2.0.0
   - orjson>=3.11.7 ; implementation_name != 'pypy'
@@ -10591,12 +10591,12 @@ packages:
   requires_python: '>=3.12'
 - pypi: ./
   name: seisfetch
-  version: 0.2.0
-  sha256: 319013f3ad7093fa77850cdb61f8a0165aa328b156ad6bc4f5aae1d67921e047
+  version: 0.3.0
+  sha256: a9f94949f73579877ba1738912f3af5b11fd95c0f856ec4b6566ecc3a01be462
   requires_dist:
   - numpy>=1.24
   - boto3>=1.28
-  - pymseed>=0.6,<0.9
+  - pymseed>=0.6,<0.10
   - obspy>=1.4 ; extra == 'obspy'
   - scipy>=1.10 ; extra == 'noisepy'
   - httpx>=0.25 ; extra == 'fdsn'

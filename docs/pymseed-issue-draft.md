@@ -92,7 +92,7 @@ file) or PR any of the above.
 
 ### Environment
 
-- pymseed 0.8.1 (also verified the same API exists in 0.6.0/0.7.0)
+- pymseed 0.8.1 (same API verified present and working in 0.6.0/0.7.0 and in the current release 0.9.3 — the benchmark table numbers are from 0.8.1)
 - libmseed (bundled), CPython 3.12.x, numpy 2.5.1
 - native: macOS 15 / Apple Silicon; container: Docker `python:3.12-slim`
   linux/arm64 with `--cpus`/`--memory` cgroup limits

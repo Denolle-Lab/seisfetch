@@ -41,6 +41,20 @@ LIVE_SUITES = {"s3_pull"}
 DEFAULT_SUITES = "parse,cold_import,memory"
 
 
+def _cgroup_cpus():
+    """Effective CPU limit under cgroup v2 (containers), else None.
+
+    os.cpu_count() reports the HOST core count inside a limited container,
+    which mislabeled the machine matrix rows (critique hygiene)."""
+    try:
+        quota, period = open("/sys/fs/cgroup/cpu.max").read().split()
+        if quota != "max":
+            return round(int(quota) / int(period), 2)
+    except OSError:
+        pass
+    return None
+
+
 def _git_sha() -> str:
     try:
         proc = subprocess.run(
@@ -69,8 +83,9 @@ def machine_info(tag: str, limits: str | None) -> dict:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "cpu_count": os.cpu_count(),
+        "effective_cpus": _cgroup_cpus(),
         "python": sys.version.split()[0],
-        "seisfetch_sha": _git_sha(),
+        "seisfetch_sha": os.environ.get("SEISFETCH_SHA") or _git_sha(),
         "obspy": _pkg_version("obspy"),
         "pymseed": _pkg_version("pymseed"),
         "numpy": _pkg_version("numpy"),

@@ -82,7 +82,12 @@ try:
 except ImportError:  # earth2studio / xarray not installed
     pass
 
-__version__ = "0.2.0"
+try:
+    from importlib.metadata import version as _pkg_version
+
+    __version__ = _pkg_version("seisfetch")
+except Exception:  # not installed (e.g. vendored copy)
+    __version__ = "0.3.0"
 __all__ = [
     "SeisfetchClient",
     "S3OpenClient",

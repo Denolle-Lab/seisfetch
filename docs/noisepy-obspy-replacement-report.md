@@ -17,13 +17,13 @@ obspy 1.5.0 · pymseed 0.8.1
 Every number in this report traces to a committed JSON under
 `benchmarks/results/` or a test in `tests/precision/`.
 
-## Headline numbers (m1-native, `benchmarks/results/m1-native_2026-08-03.json`)
+## Headline numbers (m1-native, `benchmarks/results/m1-native_2026-08-04.json`; plots + all machines in [`benchmarks/RESULTS.md`](../benchmarks/RESULTS.md))
 
 | Metric | seisfetch | obspy stack | Note |
 |---|---|---|---|
 | Parse 11 MB Steim2 channel-day | **21.4 ms** | 37.2 ms | was 217 ms at v0.2.0; the fix chain: C tracelist assembly, then decoding into a numpy-owned buffer (no borrowed-view copy) |
-| Cold `import` | **0.10 s** | 0.24 s | after making transport imports lazy (was 0.27 s) |
-| Installed footprint | **80 MB** | 311 MB | pip venvs, `du -s site-packages`; Lambda layer limit is 250 MB — obspy does not fit, seisfetch does |
+| Cold `import` | **0.08 s** | 0.13 s | after making transport imports lazy (was 0.27 s) |
+| Installed footprint | **80.4 MB** | 311.4 MB | footprint suite, committed JSON; Lambda layer limit is 250 MB — obspy does not fit, seisfetch does |
 | arm64 Linux install | wheels only | **requires gcc** | obspy publishes no linux/aarch64 wheels — on Graviton Fargate/Lambda (AWS's cheaper arm64 tier) it must compile from source; seisfetch+pymseed install from wheels |
 | Parse peak memory (tracemalloc) | **27.7 MB** | 52.0 MB | 11 MB day file |
 | Removable from NoisePy | — | **~145 MB** | obspy 41 + lxml 19 + sqlalchemy 16 + matplotlib stack 59 + pyasdf/prov 9 |

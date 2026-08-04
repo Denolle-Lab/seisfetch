@@ -2,18 +2,21 @@
 
 Auto-generated from `benchmarks/results/*.json` by
 `pixi run python -m benchmarks.render_results` — do not edit by hand.
+A self-contained HTML version with the same content lives at
+[`RESULTS.html`](RESULTS.html).
 
-## unknown
+## Plots
 
-### ?
+The seisfetch vs obspy comparison at a glance (latest run per machine;
+SVGs regenerate with the tables):
 
-- platform: None
-- cpus: None
-- python: None
-- seisfetch: None
-- pymseed: None
-- numpy: None
-- obspy: None
+![Parse time](plots/parse.svg)
+
+![Cold import](plots/cold_import.svg)
+
+![Parse memory](plots/memory.svg)
+
+![Installed footprint](plots/footprint.svg)
 
 ## fargate-class
 
@@ -165,3 +168,44 @@ File: `tests/bench.mseed` (11255808 bytes)
 | `tests/fixtures/enc_float32.mseed` | 0.012 | 0.015 | 828.4 | 0.008 | 1528 | 0.444 | 27.7 |
 | `tests/fixtures/gap_3seg.mseed` | 0.025 | 0.035 | 705.5 | 0.023 | 1055.1 | 0.504 | 48.7 |
 | `tests/test_local.mseed` | 11.256 | 21.852 | 515.1 | 28.006 | 401.9 | 35.677 | 315.5 |
+
+### 2026-08-04
+
+- platform: macOS-15.7.4-arm64-arm-64bit
+- cpus: 10
+- python: 3.12.13
+- seisfetch: 7380f72
+- pymseed: 0.9.3
+- numpy: 2.5.1
+- obspy: 1.5.0
+
+#### Cold import
+
+| Module | min (s) | mean (s) |
+| --- | --- | --- |
+| `obspy` | 0.1301 | 0.15 |
+| `seisfetch` | 0.0787 | 0.1151 |
+
+#### Install footprint
+
+| Package | Installed size (MB) |
+| --- | --- |
+| `obspy` | 311.4 |
+| `seisfetch_core` | 80.4 |
+
+#### Memory (11 MB day file)
+
+File: `tests/bench.mseed` (11255808 bytes)
+
+| Parser | Peak RSS (MB) | tracemalloc peak (MB) |
+| --- | --- | --- |
+| seisfetch | 78.9 | 27.675 |
+| obspy | 152.9 | 52.027 |
+
+#### Parse (miniSEED → numpy)
+
+| File | Size (MB) | seisfetch min (ms) | seisfetch MB/s | pymseed bare min (ms) | pymseed bare MB/s | ObsPy min (ms) | ObsPy MB/s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `tests/bench.mseed` | 11.256 | 22.563 | 498.9 | 27.25 | 413.1 | 35.814 | 314.3 |
+| `tests/fixtures/enc_float32.mseed` | 0.012 | 0.016 | 762 | 0.009 | 1417.8 | 0.442 | 27.8 |
+| `tests/fixtures/gap_3seg.mseed` | 0.025 | 0.041 | 604.3 | 0.025 | 976.5 | 0.561 | 43.8 |
