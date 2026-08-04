@@ -1,0 +1,13 @@
+# Keep the sdist lean: source + licenses + docs metadata only.
+# Tests carry an 11 MB real-data fixture and notebooks carry executed
+# outputs — they live in the repo, not the distribution.
+include LICENSE THIRD_PARTY_NOTICES.md CHANGELOG.md README.md
+recursive-include seisfetch *.py
+prune tests
+prune benchmarks
+prune notebooks
+prune tools
+prune docs
+prune .github
+prune .jupyter-kernels
+exclude .pre-commit-config.yaml pixi.lock environment.yml .gitignore
