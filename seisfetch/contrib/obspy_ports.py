@@ -131,17 +131,29 @@ def _npts2nfft(npts: int) -> int:
 
 
 def sac_cosine_taper(npts: int, p: float = 0.05) -> np.ndarray:
-    """Port of obspy cosine_taper(..., sactaper=True, halfcosine=False)."""
+    """Port of obspy cosine_taper(..., sactaper=True, halfcosine=False).
+
+    Degenerate short segments (taper half-width collapsing to a single
+    sample, npts*p/2 < 1) used to produce 0/0 -> NaN edges that silently
+    propagated through the FFT; the guards below pin those edge samples to
+    obspy's observed values instead.
+    """
     frac = int(npts * p / 2.0 + 0.5)
     idx1, idx2 = 0, frac - 1
     idx3, idx4 = npts - frac, npts - 1
     idx2 += 1
     idx3 -= 1
     w = np.ones(npts)
-    k = np.arange(idx1, idx2 + 1)
-    w[idx1 : idx2 + 1] = np.cos(-(np.pi / 2.0) * (idx2 - k) / (idx2 - idx1))
-    k = np.arange(idx3, idx4 + 1)
-    w[idx3 : idx4 + 1] = np.cos((np.pi / 2.0) * (idx3 - k) / (idx4 - idx3))
+    if idx2 > idx1:
+        k = np.arange(idx1, idx2 + 1)
+        w[idx1 : idx2 + 1] = np.cos(-(np.pi / 2.0) * (idx2 - k) / (idx2 - idx1))
+    else:
+        w[idx1] = np.cos(np.pi / 2.0)  # obspy's observed edge value (~6e-17)
+    if idx4 > idx3:
+        k = np.arange(idx3, idx4 + 1)
+        w[idx3 : idx4 + 1] = np.cos((np.pi / 2.0) * (idx3 - k) / (idx4 - idx3))
+    else:
+        w[idx4] = np.cos(np.pi / 2.0)
     return w
 
 

@@ -6,7 +6,16 @@ Two evaluation modes over one StationXML subset:
   digital poles/zeros, FIR/Coefficients with DC normalization and the
   ``Decimation/CorrectionApplied`` phase advance, per-stage gains). Formulas
   verified empirically against obspy 1.5.0's compiled evalresp to ~1e-16
-  relative per stage (see docs/response-removal-design.md).
+  relative per stage (see docs/response-removal-design.md). A0 handling
+  follows evalresp's CONDITIONAL rule: when a PZ stage's
+  ``NormalizationFrequency`` differs from its ``StageGain/Frequency``, the
+  XML ``NormalizationFactor`` is ignored and A0 is recomputed at the gain
+  frequency; when they are equal, the XML A0 is used as-is.
+
+Failure posture (2026-08 critique, B4): defective metadata fails LOUDLY.
+Zero or missing gains, degenerate normalization references, zero-sum FIR
+stages, polynomial/ResponseList stages, and absent sensitivity in paz mode
+all raise with the stage number named — never a silent NaN or unity.
 - ``mode="paz"`` — SACPZ/SeisIO-style shortcut: stage-1 poles/zeros shape
   (A0-normalized) times the overall InstrumentSensitivity. Accurate to
   <0.1% below ~Nyquist/10 and ~2% at Nyquist/2; the FIR anti-alias
@@ -32,6 +41,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -47,7 +57,7 @@ from seisfetch.contrib.obspy_ports import (  # noqa: F401
 _NS = {"s": "http://www.fdsn.org/xml/station/1"}
 
 # frequency-domain differentiation exponent by quantity
-_UNIT_EXPONENT = {"M": 0, "M/S": 1, "M/S**2": 2}
+_UNIT_EXPONENT = {"M": 0, "M/S": 1, "M/S**2": 2, "M/S/S": 2}
 _UNIT_SCALE = {"CM": 1e2, "MM": 1e3, "NM": 1e9}  # prefix -> SI scale factor
 _OUTPUT_EXPONENT = {"DISP": 0, "VEL": 1, "ACC": 2}
 
@@ -57,11 +67,12 @@ class PZStage:
     transfer_type: (
         str  # "LAPLACE (RADIANS/SECOND)" | "LAPLACE (HERTZ)" | "DIGITAL (Z-TRANSFORM)"
     )
-    a0: float
+    a0: float | None
     poles: np.ndarray
     zeros: np.ndarray
     gain: float
     gain_frequency: float | None = None  # StageGain/Frequency
+    normalization_frequency: float | None = None  # XML NormalizationFrequency
     input_sample_rate: float | None = None  # for digital PZ
 
 
@@ -81,8 +92,8 @@ class GainStage:
 @dataclass
 class ChannelResponse:
     stages: list = field(default_factory=list)
-    sensitivity: float = 1.0
-    sensitivity_frequency: float = 1.0
+    sensitivity: float | None = None  # None when the XML has no InstrumentSensitivity
+    sensitivity_frequency: float | None = None
     input_units: str = "M/S"  # stage-1 input units, drives (iw)^n and scale
 
     @property
@@ -120,6 +131,26 @@ def _complex_list(stage_el, tag) -> np.ndarray:
     return np.asarray(out, dtype=complex)
 
 
+def _parse_iso_utc(s: str) -> datetime:
+    """ISO 8601 -> aware UTC datetime. Naive times are taken as UTC;
+    offsets (including the epoch-selection bug class ``-08:00``) are
+    honored and converted."""
+    s = s.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _norm_loc(loc) -> str:
+    """Normalize a location code: None, "", and the FDSN blank spelling
+    "--" all mean the blank location."""
+    loc = (loc or "").strip()
+    return "" if loc == "--" else loc
+
+
 def parse_stationxml_response(
     xml_bytes: bytes,
     network: str,
@@ -130,9 +161,13 @@ def parse_stationxml_response(
 ) -> ChannelResponse:
     """Extract one channel epoch's response from StationXML bytes.
 
-    Selects the epoch whose [startDate, endDate] covers ``time_iso``
-    (ISO 8601, compared lexicographically — valid for zoned ISO strings).
+    Selects the epoch whose [startDate, endDate] covers ``time_iso``.
+    All timestamps are parsed to timezone-aware UTC datetimes; naive
+    strings are taken as UTC, and non-UTC offsets are converted (a
+    ``[:19]`` string comparison used to select the wrong epoch for
+    offset-bearing timestamps at epoch boundaries).
     """
+    t = _parse_iso_utc(time_iso)
     root = ET.fromstring(xml_bytes)
     for net in root.findall("s:Network", _NS):
         if net.get("code") != network:
@@ -143,11 +178,16 @@ def parse_stationxml_response(
             for ch in sta.findall("s:Channel", _NS):
                 if ch.get("code") != channel:
                     continue
-                if (ch.get("locationCode") or "") != (location or ""):
+                if _norm_loc(ch.get("locationCode")) != _norm_loc(location):
                     continue
-                start = ch.get("startDate") or ""
-                end = ch.get("endDate") or "2999-01-01"
-                if not (start[:19] <= time_iso[:19] <= end[:19]):
+                start = _parse_iso_utc(ch.get("startDate") or "1900-01-01")
+                end_str = ch.get("endDate")
+                end = (
+                    _parse_iso_utc(end_str)
+                    if end_str
+                    else datetime.max.replace(tzinfo=timezone.utc)
+                )
+                if not (start <= t <= end):
                     continue
                 return _parse_response(ch.find("s:Response", _NS))
     raise LookupError(
@@ -159,8 +199,13 @@ def _parse_response(resp_el) -> ChannelResponse:
     out = ChannelResponse()
     sens = resp_el.find("s:InstrumentSensitivity", _NS)
     if sens is not None:
-        out.sensitivity = _text(sens, "s:Value") or 1.0
-        out.sensitivity_frequency = _text(sens, "s:Frequency") or 1.0
+        out.sensitivity = _text(sens, "s:Value")
+        if out.sensitivity == 0.0:
+            raise ValueError(
+                "InstrumentSensitivity/Value is 0.0 — broken metadata "
+                "(a zero sensitivity cannot be deconvolved)"
+            )
+        out.sensitivity_frequency = _text(sens, "s:Frequency")
         units = sens.find("s:InputUnits/s:Name", _NS)
         if units is not None:
             out.input_units = units.text
@@ -168,28 +213,59 @@ def _parse_response(resp_el) -> ChannelResponse:
     for st in sorted(
         resp_el.findall("s:Stage", _NS), key=lambda s: int(s.get("number"))
     ):
-        gain = _text(st, "s:StageGain/s:Value") or 1.0
+        n = st.get("number")
+        for bad in ("Polynomial", "ResponseList"):
+            if st.find(f"s:{bad}", _NS) is not None:
+                raise NotImplementedError(
+                    f"stage {n}: {bad} response stages are not supported "
+                    "(refusing to silently mis-deconvolve; use obspy for "
+                    "polynomial/response-list channels)"
+                )
+        gain = _text(st, "s:StageGain/s:Value")
+        if gain is None:
+            raise ValueError(
+                f"stage {n}: missing StageGain/Value (evalresp rejects this "
+                "metadata too)"
+            )
+        if gain == 0.0:
+            raise ValueError(f"stage {n}: StageGain/Value is 0.0 — broken metadata")
         gain_freq = _text(st, "s:StageGain/s:Frequency")
         pz = st.find("s:PolesZeros", _NS)
         coeff = st.find("s:Coefficients", _NS)
         fir = st.find("s:FIR", _NS)
         deci = st.find("s:Decimation", _NS)
         in_sr = _text(deci, "s:InputSampleRate") if deci is not None else None
-        corr = (_text(deci, "s:Correction") if deci is not None else None) or 0.0
+        corr = _text(deci, "s:Correction") if deci is not None else None
+        if corr is None:
+            corr = 0.0
 
         if pz is not None:
             if int(st.get("number")) == 1:
                 units = pz.find("s:InputUnits/s:Name", _NS)
                 if units is not None:
                     out.input_units = units.text
+            a0 = _text(pz, "s:NormalizationFactor")
+            if a0 == 0.0:
+                raise ValueError(
+                    f"stage {n}: NormalizationFactor is 0.0 — broken metadata"
+                )
+            tt = _text(pz, "s:PzTransferFunctionType", str) or ""
+            if ("DIGITAL" in tt.upper() or "Z-TRANSFORM" in tt.upper()) and (
+                in_sr is None
+            ):
+                raise ValueError(
+                    f"stage {n}: digital (Z-transform) PolesZeros stage has "
+                    "no Decimation/InputSampleRate — cannot evaluate"
+                )
             out.stages.append(
                 PZStage(
-                    transfer_type=_text(pz, "s:PzTransferFunctionType", str),
-                    a0=_text(pz, "s:NormalizationFactor") or 1.0,
+                    transfer_type=tt,
+                    a0=a0,
                     poles=_complex_list(pz, "Pole"),
                     zeros=_complex_list(pz, "Zero"),
                     gain=gain,
                     gain_frequency=gain_freq,
+                    normalization_frequency=_text(pz, "s:NormalizationFrequency"),
                     input_sample_rate=in_sr,
                 )
             )
@@ -199,6 +275,11 @@ def _parse_response(resp_el) -> ChannelResponse:
             if dens:
                 raise NotImplementedError("IIR Coefficients stages not supported")
             if nums:
+                if in_sr is None:
+                    raise ValueError(
+                        f"stage {n}: Coefficients stage has no "
+                        "Decimation/InputSampleRate — cannot evaluate"
+                    )
                 out.stages.append(
                     FIRStage(
                         coefficients=np.asarray(nums),
@@ -217,6 +298,11 @@ def _parse_response(resp_el) -> ChannelResponse:
                 c = np.concatenate([c, c[-2::-1]])
             elif sym.upper() == "EVEN":
                 c = np.concatenate([c, c[::-1]])
+            if in_sr is None:
+                raise ValueError(
+                    f"stage {n}: FIR stage has no Decimation/InputSampleRate "
+                    "— cannot evaluate"
+                )
             out.stages.append(
                 FIRStage(
                     coefficients=c,
@@ -251,44 +337,90 @@ def evaluate_response(
     w = 2.0 * np.pi * freqs
 
     if mode == "paz":
+        if resp.sensitivity is None or resp.sensitivity_frequency is None:
+            raise ValueError(
+                "paz mode needs InstrumentSensitivity Value AND Frequency; "
+                "this StationXML has none (mode='full' uses stage gains and "
+                "does not need it)"
+            )
         pz = next(s for s in resp.stages if isinstance(s, PZStage))
         shape = _pz_shape(pz, freqs, w)
         # renormalize at the sensitivity frequency: InstrumentSensitivity is
         # DEFINED as |H| there, so the composite must equal it exactly at
         # f_sens. This removes the scalar bias a stale XML A0 would inject
-        # (same principle as evalresp's A0 recompute) and leaves only the
-        # genuine FIR ripple as paz-mode error.
-        f0 = np.asarray([resp.sensitivity_frequency])
-        ref = _pz_shape(pz, f0, 2.0 * np.pi * f0)[0]
-        h = shape / abs(ref) * resp.sensitivity
+        # and leaves only the genuine FIR ripple as paz-mode error. (This is
+        # a deliberate seisfetch choice, distinct from evalresp's
+        # conditional rule used in mode='full'.)
+        h = (
+            shape
+            / _ref_magnitude(pz, resp.sensitivity_frequency, "paz")
+            * (resp.sensitivity)
+        )
     elif mode == "full":
         h = np.ones_like(freqs, dtype=complex)
         for s in resp.stages:
             if isinstance(s, PZStage):
-                # evalresp behavior (verified empirically): the XML
-                # NormalizationFactor and NormalizationFrequency are IGNORED;
-                # A0 is recomputed so |shape| = 1 at the stage gain's own
-                # frequency — the frequency the gain was measured at.
+                # evalresp's A0 rule, verified by perturbation experiments
+                # (2026-08 critique, B4): the XML NormalizationFactor is
+                # used AS-IS when NormalizationFrequency equals the
+                # StageGain/Frequency; only when they DIFFER (or A0/f_norm
+                # is missing) does evalresp ignore it and renormalize
+                # |shape| = 1 at the gain frequency.
                 shape = _pz_shape(s, freqs, w)
-                if s.gain_frequency is not None:
-                    f0 = np.asarray([s.gain_frequency])
-                    ref = _pz_shape(s, f0, 2.0 * np.pi * f0)[0]
-                    shape = shape / abs(ref)
+                recompute = s.gain_frequency is not None and (
+                    s.a0 is None
+                    or s.normalization_frequency is None
+                    or s.normalization_frequency != s.gain_frequency
+                )
+                if s.a0 is None and s.gain_frequency is None:
+                    raise ValueError(
+                        "PZ stage has neither NormalizationFactor nor "
+                        "StageGain/Frequency — cannot normalize"
+                    )
+                if recompute:
+                    shape = shape / _ref_magnitude(s, s.gain_frequency, "full")
                 h = h * shape * s.gain
             elif isinstance(s, FIRStage):
+                if s.coefficients.sum() == 0:
+                    raise ValueError(
+                        "FIR stage coefficients sum to zero — cannot "
+                        "DC-normalize (broken metadata)"
+                    )
                 h = h * _fir_shape(s, w) * s.gain
             else:
                 h = h * s.gain
     else:
         raise ValueError(mode)
 
-    n = resp.native_exponent - _OUTPUT_EXPONENT[output.upper()]
+    out_key = output.upper()
+    if out_key == "DEF":
+        # native quantity: no frequency-domain differentiation/integration
+        return h * resp.unit_scale
+    n = resp.native_exponent - _OUTPUT_EXPONENT[out_key]
     if n:
         with np.errstate(divide="ignore", invalid="ignore"):
             h = h * (1j * w) ** n
         if n < 0:
             h[w == 0] = 0.0
     return h * resp.unit_scale
+
+
+def _ref_magnitude(pz: PZStage, f0: float, context: str) -> float:
+    """|shape(f0)| for renormalization, with degeneracy made LOUD.
+
+    A gain/sensitivity frequency of 0.0 on a velocity response (zeros at
+    the origin), or one sitting on a spectral zero/pole, makes the
+    reference 0 or non-finite — the silent all-NaN family from the
+    2026-08 critique. Raise instead."""
+    f_arr = np.asarray([float(f0)])
+    ref = abs(_pz_shape(pz, f_arr, 2.0 * np.pi * f_arr)[0])
+    if not np.isfinite(ref) or ref == 0.0:
+        raise ValueError(
+            f"cannot renormalize ({context} mode): |PZ shape({f0} Hz)| = "
+            f"{ref} — the reference frequency sits on a zero/pole of the "
+            "stage (often a bogus 0.0 Hz frequency in the metadata)"
+        )
+    return ref
 
 
 def _pz_shape(s: PZStage, freqs: np.ndarray, w: np.ndarray) -> np.ndarray:
@@ -306,8 +438,11 @@ def _pz_shape(s: PZStage, freqs: np.ndarray, w: np.ndarray) -> np.ndarray:
     den = np.ones_like(x)
     for p in s.poles:
         den = den * (x - p)
+    a0 = 1.0 if s.a0 is None else s.a0
     with np.errstate(divide="ignore", invalid="ignore"):
-        out = s.a0 * num / den
+        out = a0 * num / den
+    # per-bin singularities (poles/zeros at DC or Nyquist) are physical and
+    # zeroed; GLOBAL degeneracy is guarded loudly in _ref_magnitude
     return np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
 

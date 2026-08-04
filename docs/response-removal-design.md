@@ -40,14 +40,18 @@ obspy). Per-stage formulas, verified empirically to ~1e-16 per stage:
   only); units via `H·(iω)^(n_native − n_requested)`; CM/MM/NM prefixes scale
   by 1e2/1e3/1e9
 
-**The discovery that mattered:** evalresp **ignores the XML
-`NormalizationFactor` and `NormalizationFrequency` entirely** and recomputes
-A0 so that |PZ shape| = 1 at the **stage gain's frequency**. Proven by
-perturbation (doubling A0 or changing f_norm: no effect) and by the CI.PASC
-2007 epoch, where f_norm (0.03 Hz) ≠ gain frequency (1.0 Hz) and the recompute
-reproduces evalresp to 9 digits (ratio 0.997788169). Implementations that use
-the XML A0 as given (SeisIO light mode, naive SACPZ) inherit whatever error
-the metadata author left — 0.22% on this real channel.
+**The discovery that mattered (corrected by the 2026-08 external review):**
+evalresp's A0 rule is **conditional**. When a PZ stage's
+`NormalizationFrequency` differs from its `StageGain/Frequency`, evalresp
+ignores the XML `NormalizationFactor` and renormalizes |PZ shape| = 1 at the
+gain frequency — the CI.PASC 2007 epoch (f_norm 0.03 Hz ≠ f_gain 1.0 Hz)
+exposes this, reproducing evalresp to 9 digits (ratio 0.997788169). But when
+the two frequencies are EQUAL, evalresp uses the XML A0 as-is — including a
+defective one (2× A0 corruption reproduced identically by evalresp and by
+this module in `tests/precision/test_response_dirty_metadata.py`). The
+module implements the conditional rule in `mode="full"`; `mode="paz"`
+deliberately always renormalizes at the sensitivity frequency (where
+sensitivity is defined) and documents the divergence.
 
 ## SeisIO.jl comparison (from-scratch prior art)
 

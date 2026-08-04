@@ -23,7 +23,21 @@ raises `NoDataError` unless `missing_ok=True`; SCEDC/NCEDC wildcards
 (live-verified: the previously-0-byte default CI.PASC BHZ pull now returns
 10.1 MB across loc 00+10); FDSN `*` passes through, `""` maps to `--`,
 204/404 are no-data, real HTTP errors raise `FDSNError`; day windows are
-half-open. B4 remains open.
+half-open.
+
+**B4 resolved 2026-08-04**: evalresp's A0 rule implemented CONDITIONALLY in
+mode='full' (XML A0 used as-is when f_norm == f_gain; recompute at f_gain
+only when they differ — both branches cross-checked against compiled
+evalresp on deliberately corrupted A0s); epoch selection parses UTC-aware
+datetimes (offset timestamps convert correctly, "--" location normalized);
+every silent-NaN path now raises with the stage named (gain frequency at a
+spectral zero, zero-sum FIR, degenerate paz renorm); falsy-`or` defaults
+replaced with `is None` semantics — zero gains/sensitivity/A0 raise as
+broken-metadata sentinels, absent InstrumentSensitivity raises in paz mode;
+Polynomial/ResponseList stages raise NotImplementedError instead of silent
+GainStage degradation; degenerate short-segment taper matches obspy
+bit-exactly (was NaN); DEF output and M/S/S units supported. 14 new tests in
+tests/precision/test_response_dirty_metadata.py. All four blockers closed.
 
 ---
 
