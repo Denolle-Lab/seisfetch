@@ -92,14 +92,30 @@ class TestS3OpenClientEarthScope:
             > 0
         )
 
-    def test_get_raw_missing(self):
+    def test_get_raw_missing_raises(self):
+        from seisfetch.exceptions import NoDataError
+
+        boto3.client("s3", region_name="us-east-2").create_bucket(
+            Bucket=OPEN_BUCKET,
+            CreateBucketConfiguration={"LocationConstraint": "us-east-2"},
+        )
+        with pytest.raises(NoDataError):
+            self._client().get_raw(
+                "XX", "NOPE", starttime="2024-01-15", endtime="2024-01-15T01:00:00"
+            )
+
+    def test_get_raw_missing_ok_returns_empty(self):
         boto3.client("s3", region_name="us-east-2").create_bucket(
             Bucket=OPEN_BUCKET,
             CreateBucketConfiguration={"LocationConstraint": "us-east-2"},
         )
         assert (
             self._client().get_raw(
-                "XX", "NOPE", starttime="2024-01-15", endtime="2024-01-15T01:00:00"
+                "XX",
+                "NOPE",
+                starttime="2024-01-15",
+                endtime="2024-01-15T01:00:00",
+                missing_ok=True,
             )
             == b""
         )

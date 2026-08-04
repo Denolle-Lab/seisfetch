@@ -26,6 +26,7 @@ Attribution:
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -33,7 +34,9 @@ from concurrent.futures import ThreadPoolExecutor
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
+from seisfetch.exceptions import FetchError, NoDataError
 from seisfetch.utils import (
     AUTH_ACCESS_POINT,
     AUTH_PREFIX,
@@ -225,6 +228,56 @@ class S3OpenClient:
         )
         return data, meta
 
+    def _iter_keys(self, s3, bucket: str, prefix: str):
+        """Paginated key listing (list_objects_v2 truncates at 1000)."""
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                yield obj["Key"]
+
+    def _discover_channel_keys(
+        self, dc_name, dc, network, station, yr, doy, channel, location
+    ) -> list[str]:
+        """LIST-based discovery for per-channel archives.
+
+        Used whenever ``channel`` contains a wildcard or ``location`` is
+        ``"*"``: one paginated LIST per station-day replaces guessed GETs,
+        and location-coded channels (00/10/...) are actually found.
+        """
+        s3 = self._get_s3(dc["region"])
+        keys = []
+        if dc_name == "scedc":
+            prefix = (
+                f"continuous_waveforms/{yr}/{yr}_{doy:03d}/"
+                f"{network}{station.ljust(5, '_')}"
+            )
+            for key in self._iter_keys(s3, dc["bucket"], prefix):
+                base = key.rsplit("/", 1)[-1]
+                if len(base) < 13:
+                    continue
+                cha, loc = base[7:10], base[10:13].rstrip("_")
+                if not fnmatch.fnmatch(cha, channel):
+                    continue
+                if location != "*" and loc != (location or ""):
+                    continue
+                keys.append(key)
+        else:  # ncedc
+            prefix = (
+                f"continuous_waveforms/{network}/{yr}/{yr}.{doy:03d}/"
+                f"{station}.{network}."
+            )
+            for key in self._iter_keys(s3, dc["bucket"], prefix):
+                parts = key.rsplit("/", 1)[-1].split(".")
+                if len(parts) < 4:
+                    continue
+                cha, loc = parts[2], parts[3]
+                if not fnmatch.fnmatch(cha, channel):
+                    continue
+                if location != "*" and loc != (location or ""):
+                    continue
+                keys.append(key)
+        return sorted(keys)
+
     def get_raw(
         self,
         network,
@@ -234,13 +287,24 @@ class S3OpenClient:
         location="*",
         channel="*",
         suffix="",
+        missing_ok=False,
+        on_error="raise",
         **kwargs,
     ) -> bytes:
         """
         Download raw miniSEED bytes, auto-routing to the correct S3 bucket.
 
-        For per-channel buckets (SCEDC, NCEDC), ``channel`` must not be
-        a wildcard — pass specific channels or use ``get_raw_bulk()``.
+        Failure contract (see docs/reviews/2026-08-external-critique.md, B2):
+        objects that are cleanly absent (404) are tolerated per key; any
+        OTHER failure (403, throttling, credentials, transport) raises
+        :class:`seisfetch.exceptions.FetchError` unless ``on_error="warn"``.
+        If nothing at all was fetched, :class:`NoDataError` is raised unless
+        ``missing_ok=True`` (which returns ``b""``).
+
+        Wildcards: on per-channel archives (SCEDC/NCEDC), ``location="*"``
+        (the default) and ``channel`` wildcards are resolved by a paginated
+        LIST per station-day, so location-coded channels are found instead
+        of guessed at.
         """
         if starttime is None:
             raise ValueError("starttime is required")
@@ -248,23 +312,29 @@ class S3OpenClient:
             endtime = to_epoch(starttime) + 86400
 
         dc = self._resolve_dc(network)
+        dc_name = self._datacenter_override or route_network(network)
         days = list(date_range(starttime, endtime))
-        chunks: list[bytes] = []
 
-        # Build list of S3 keys to fetch
-        keys = []
+        keys: list[tuple[str, str, str]] = []
         for d in days:
             yr, doy = date_to_year_doy(d)
             if dc["per_channel"]:
-                # Per-channel archives: need explicit channel
-                chans = self._expand_channels(channel)
-                locs = [location] if location and location != "*" else [""]
-                for cha in chans:
-                    for loc in locs:
-                        key = dc["key_fn"](
-                            network, station, yr, doy, location=loc, channel=cha
-                        )
+                wildcard = "*" in channel or "?" in channel or location == "*"
+                if wildcard:
+                    for key in self._discover_channel_keys(
+                        dc_name, dc, network, station, yr, doy, channel, location
+                    ):
                         keys.append((dc["bucket"], key, dc["region"]))
+                else:
+                    key = dc["key_fn"](
+                        network,
+                        station,
+                        yr,
+                        doy,
+                        location=location or "",
+                        channel=channel,
+                    )
+                    keys.append((dc["bucket"], key, dc["region"]))
             else:
                 key = dc["key_fn"](
                     network,
@@ -276,20 +346,53 @@ class S3OpenClient:
                 )
                 keys.append((dc["bucket"], key, dc["region"]))
 
+        if not keys:
+            if missing_ok:
+                return b""
+            raise NoDataError(
+                [
+                    f"{dc['bucket']}: no objects match "
+                    f"{network}.{station}.{location}.{channel} on {len(days)} day(s)"
+                ]
+            )
+        return self._classified_fetch(keys, missing_ok=missing_ok, on_error=on_error)
+
+    def _classified_fetch(self, keys, missing_ok: bool, on_error: str) -> bytes:
+        """Fetch keys in submission order; classify per-key outcomes."""
+        chunks: list[bytes] = []
+        missing: list[str] = []
+        failures: list[tuple[str, str, str]] = []
+
         def _dl(args):
             return self._fetch_object(*args)[0]
 
-        # Collect in SUBMISSION order (day-major, channel-minor as built
-        # above) so the returned byte stream is deterministic; as_completed
-        # ordering varies run to run.
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             futs = [(pool.submit(_dl, k), k) for k in keys]
-            for f, k in futs:
+            for f, (_bucket, key, _region) in futs:
                 try:
                     chunks.append(f.result())
-                except Exception:
-                    logger.warning("fetch failed: %s", k[1], exc_info=True)
+                except ClientError as e:
+                    code = e.response.get("Error", {}).get("Code", "")
+                    status = e.response.get("ResponseMetadata", {}).get(
+                        "HTTPStatusCode"
+                    )
+                    if code in ("NoSuchKey", "404") or status == 404:
+                        missing.append(key)
+                    else:
+                        failures.append((key, code or type(e).__name__, str(e)))
+                except Exception as e:
+                    failures.append((key, type(e).__name__, str(e)))
 
+        if failures:
+            if on_error == "raise":
+                raise FetchError(failures, fetched=len(chunks), missing=missing)
+            logger.warning(
+                "%d fetch failure(s) tolerated (on_error='warn'): %s",
+                len(failures),
+                "; ".join(f"{k}: {c}" for k, c, _ in failures[:5]),
+            )
+        if not chunks and not missing_ok:
+            raise NoDataError(missing or [k for _, k, _ in keys])
         return b"".join(chunks)
 
     @staticmethod
@@ -406,12 +509,30 @@ class S3AuthClient:
             raw, _ = self._fetch_day(network, station, yr, doy, suffix=suffix)
             return raw
 
-        # submission (day) order, not as_completed — deterministic output
+        # submission (day) order, not as_completed — deterministic output.
+        # Same failure contract as S3OpenClient: 404 tolerated per day,
+        # real errors raise FetchError, all-missing raises NoDataError.
+        missing: list[str] = []
+        failures: list[tuple[str, str, str]] = []
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futs = [pool.submit(_dl, d) for d in days]
-            for f in futs:
+            futs = [(pool.submit(_dl, d), d) for d in days]
+            for f, d in futs:
+                label = f"{network}.{station} {d}"
                 try:
                     chunks.append(f.result())
-                except Exception:
-                    logger.warning("auth fetch failed", exc_info=True)
+                except ClientError as e:
+                    code = e.response.get("Error", {}).get("Code", "")
+                    status = e.response.get("ResponseMetadata", {}).get(
+                        "HTTPStatusCode"
+                    )
+                    if code in ("NoSuchKey", "404") or status == 404:
+                        missing.append(label)
+                    else:
+                        failures.append((label, code or type(e).__name__, str(e)))
+                except Exception as e:
+                    failures.append((label, type(e).__name__, str(e)))
+        if failures:
+            raise FetchError(failures, fetched=len(chunks), missing=missing)
+        if not chunks and not kwargs.get("missing_ok", False):
+            raise NoDataError(missing or [f"{network}.{station}"])
         return b"".join(chunks)

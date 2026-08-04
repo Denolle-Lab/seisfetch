@@ -257,7 +257,7 @@ _S3_TARGET = {
     "year": 2022,
     "doy": 2,
     "channel": "BHZ",
-    "location": "",
+    "location": "00",
 }
 
 

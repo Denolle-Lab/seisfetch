@@ -239,7 +239,9 @@ def fetch_bulk_raw(
             return BulkResult(request=req, raw=raw, elapsed_s=elapsed)
         except Exception as e:
             elapsed = time.perf_counter() - t0
-            return BulkResult(request=req, elapsed_s=elapsed, error=str(e))
+            return BulkResult(
+                request=req, elapsed_s=elapsed, error=f"{type(e).__name__}: {e}"
+            )
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch_one, r): r for r in requests}
@@ -301,7 +303,9 @@ def fetch_bulk_numpy(
             return BulkResult(request=req, raw=raw, bundle=bundle, elapsed_s=elapsed)
         except Exception as e:
             return BulkResult(
-                request=req, elapsed_s=time.perf_counter() - t0, error=str(e)
+                request=req,
+                elapsed_s=time.perf_counter() - t0,
+                error=f"{type(e).__name__}: {e}",
             )
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:

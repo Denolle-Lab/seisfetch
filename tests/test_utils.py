@@ -63,21 +63,30 @@ class TestTimeConversion:
 
 
 class TestDateRange:
+    """Half-open [start, end): an end falling exactly at midnight does not
+    include the following day (critique B3 fix — the old inclusive range
+    made every default one-day request fetch two day objects)."""
+
     def test_single_day(self):
         days = list(date_range("2024-01-15", "2024-01-15"))
         assert len(days) == 1
 
-    def test_multi_day(self):
+    def test_midnight_end_excluded(self):
         days = list(date_range("2024-01-15", "2024-01-17"))
+        assert len(days) == 2  # Jan 15, 16 — not 17
+
+    def test_midday_end_included(self):
+        days = list(date_range("2024-01-15", "2024-01-17T12:00:00"))
         assert len(days) == 3
 
-    def test_cross_year(self):
+    def test_cross_year_midnight_end(self):
         days = list(date_range("2023-12-31", "2024-01-01"))
-        assert len(days) == 2
+        assert len(days) == 1  # Dec 31 only
 
-    def test_from_epoch(self):
+    def test_from_epoch_one_day(self):
+        # 1705276800 = 2024-01-15T00:00Z; +86400 = next midnight -> 1 day
         days = list(date_range(1705276800.0, 1705363200.0))
-        assert len(days) == 2
+        assert len(days) == 1
 
 
 class TestDateToYearDoy:

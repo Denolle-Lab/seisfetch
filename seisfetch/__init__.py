@@ -51,6 +51,10 @@ _LAZY = {
     "list_providers": "seisfetch.fdsn",
     "resolve_provider": "seisfetch.fdsn",
     "S3AuthClient": "seisfetch.s3",
+    "SeisfetchError": "seisfetch.exceptions",
+    "FetchError": "seisfetch.exceptions",
+    "NoDataError": "seisfetch.exceptions",
+    "FDSNError": "seisfetch.exceptions",
     "S3OpenClient": "seisfetch.s3",
     "route_network": "seisfetch.s3",
 }
