@@ -94,11 +94,20 @@ def path_a_select(raw: bytes, cfg, start, end, nslc: str):
     return compute_fft(cfg, ChannelData(st_p))
 
 
+def cache_name(dc, net, sta, loc, cha, day) -> str:
+    """Cache key encodes everything the fetched bytes depend on: the
+    datacenter and, for per-channel archives, the location/channel
+    (EarthScope objects are whole station-days). A bare net.sta.day name
+    would silently reuse the wrong file across archives or channels."""
+    sel = "all" if dc == "earthscope" else f"{loc or '--'}.{cha}"
+    return f"{dc}.{net}.{sta}.{sel}.{day}.ms"
+
+
 def fetch(cache: Path, dc, net, sta, loc, cha, day) -> bytes:
     from seisfetch.s3 import S3OpenClient
 
     cache.mkdir(parents=True, exist_ok=True)
-    f = cache / f"{net}.{sta}.{day}.ms"
+    f = cache / cache_name(dc, net, sta, loc, cha, day)
     if f.exists():
         return f.read_bytes()
     kwargs = {} if dc == "earthscope" else {"location": loc, "channel": cha}
@@ -139,12 +148,16 @@ def main() -> int:
         b = np.atleast_2d(cb).mean(axis=0)
         max_abs = float(np.abs(a - b).max())
         peak = float(np.abs(a).max())
+        if peak == 0.0:
+            raise RuntimeError(f"{s}-{r}: all-zero CCF on path A — nothing to compare")
         corr = float(np.corrcoef(a, b)[0, 1])
-        pair_ok = corr > 0.99999
+        # the claim under test is BIT-identity; any nonzero diff is a fail
+        # (precision-bank policy: future drift must be seen and justified)
+        pair_ok = max_abs == 0.0
         ok &= pair_ok
         results[f"{s}-{r}"] = {
             "max_abs_diff": max_abs,
-            "max_abs_rel_to_peak": max_abs / peak if peak else 0.0,
+            "max_abs_rel_to_peak": max_abs / peak,
             "waveform_corr": corr,
             "pass": bool(pair_ok),
         }

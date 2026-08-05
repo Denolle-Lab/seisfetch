@@ -224,10 +224,18 @@ def segment_interpolate_np(sig1: np.ndarray, nfric: float) -> np.ndarray:
     # sum is float64 and the store rounds to float32. Anything else (all-
     # float32, all-float64) is off by 1 ulp on ~30% of samples, which
     # amplifies to ~2e-5 of peak in a stacked CCF.
+    # the first product MUST run in float64. Do not write it as
+    # `np.float64(...) * sig1[2:]`: under numpy 1.x value-based casting a
+    # float64 SCALAR does not upcast a float32 array and the product silently
+    # runs in float32 (numpy 2 promotes; the difference is invisible there).
+    # The ufunc dtype argument forces float64 on every numpy without an
+    # intermediate .astype copy. The second product must stay float32; the
+    # sum then upcasts (array-array promotion is version-stable).
     nf32 = np.float32(nfric)
-    sig2[1:-1] = (1.0 - np.float64(nf32)) * sig1[2:].astype(np.float64) + (
-        nf32 * sig1[1:-1]
-    ).astype(np.float64)
+    sig2[1:-1] = (
+        np.multiply(sig1[2:], 1.0 - np.float64(nf32), dtype=np.float64)
+        + nf32 * sig1[1:-1]
+    )
     return sig2
 
 
