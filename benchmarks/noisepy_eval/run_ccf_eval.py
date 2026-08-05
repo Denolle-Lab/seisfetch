@@ -44,6 +44,22 @@ def fetch_bytes(cache: Path, network, station, location, channel, day) -> bytes:
     return raw
 
 
+def snap_window(raw: bytes, nslc: str, day0, day1):
+    """Snap the day window to the channel's sample grid (nearest sample,
+    matching obspy trim), keeping the window length. Real archive day files
+    start sub-sample off midnight (CI.PASC is 0.218 samples off); the
+    adapter's alignment guard requires callers to resolve this, and both
+    paths must get the SAME snapped window for the comparison to be fair."""
+    from seisfetch.convert import parse_mseed
+
+    seg = parse_mseed(raw).segments()[nslc][0]
+    dt_ns = round(1e9 / seg.sampling_rate)
+    day0_ns = int(day0.timestamp() * 1e9)
+    start_ns = seg.starttime_ns + round((day0_ns - seg.starttime_ns) / dt_ns) * dt_ns
+    start = datetime.fromtimestamp(start_ns / 1e9, tz=timezone.utc)
+    return start, start + (day1 - day0)
+
+
 def make_config():
     from noisepy.seis.io.datatypes import (
         CCMethod,
@@ -163,8 +179,9 @@ def main() -> int:
         chan = f"{args.band}{c}"
         raw = fetch_bytes(cache, network, station, args.location, chan, args.day)
         nslc = f"{network}.{station}.{args.location}.{chan}"
-        ffts_a[c] = path_a(raw, cfg, day0, day1)
-        ffts_b[c] = path_b(raw, cfg, day0, day1, nslc)
+        w0, w1 = snap_window(raw, nslc, day0, day1)
+        ffts_a[c] = path_a(raw, cfg, w0, w1)
+        ffts_b[c] = path_b(raw, cfg, w0, w1, nslc)
 
     pairs = [("E", "N"), ("E", "Z"), ("N", "Z"), ("Z", "Z")]
     eps_grid = np.linspace(-0.05, 0.05, 161)

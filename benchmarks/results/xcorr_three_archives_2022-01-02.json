@@ -1,0 +1,20 @@
+{
+  "PASC-PFO": {
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 1.0
+  },
+  "PASC-PKD": {
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 1.0
+  },
+  "PKD-PFO": {
+    "max_abs_diff": 0.0,
+    "max_abs_rel_to_peak": 0.0,
+    "pass": true,
+    "waveform_corr": 0.9999999999999999
+  }
+}

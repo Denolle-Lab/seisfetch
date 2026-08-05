@@ -69,7 +69,8 @@ class NpChannelData:
     """Array-backed stand-in for ``noisepy.seis.io.datatypes.ChannelData``.
 
     Exposes the three attributes NoisePy reads after preprocessing:
-    ``data`` (1-D float32), ``sampling_rate``, ``start_timestamp`` (epoch
+    ``data`` (1-D; dtype follows noisepy's chain — float32, or float64 out
+    of the resample branch), ``sampling_rate``, ``start_timestamp`` (epoch
     seconds). The one remaining obspy seam in noisepy-seis is
     ``correlate.py:437`` (``ch_data.stream.copy()`` inside ``preprocess``);
     the evaluation harness replaces that call with :func:`preprocess_raw_np`,
@@ -216,8 +217,17 @@ def segment_interpolate_np(sig1: np.ndarray, nfric: float) -> np.ndarray:
     sig2 = np.empty_like(sig1)
     sig2[0] = sig1[0]
     sig2[-1] = sig1[-1]
-    # noisepy: sig2[ii] = (1-nfric)*sig1[ii+1] + nfric*sig1[ii]
-    sig2[1:-1] = np.float32(1 - nfric) * sig1[2:] + np.float32(nfric) * sig1[1:-1]
+    # noisepy: sig2[ii] = (1-nfric)*sig1[ii+1] + nfric*sig1[ii], under numba's
+    # "float32[:](float32[:],float32)" signature. Numba's type unification
+    # makes (1 - nfric) FLOAT64 (int literal + float32 -> float64) so the
+    # first product runs in float64, while nfric*sig1[ii] stays float32; the
+    # sum is float64 and the store rounds to float32. Anything else (all-
+    # float32, all-float64) is off by 1 ulp on ~30% of samples, which
+    # amplifies to ~2e-5 of peak in a stacked CCF.
+    nf32 = np.float32(nfric)
+    sig2[1:-1] = (1.0 - np.float64(nf32)) * sig1[2:].astype(np.float64) + (
+        nf32 * sig1[1:-1]
+    ).astype(np.float64)
     return sig2
 
 
@@ -234,9 +244,8 @@ def preprocess_raw_np(
     Order mirrors noisepy noise_module.py:128-227: gap check -> per-segment
     nan/inf zeroing, float32 cast, demean, detrend, 5% taper -> merge with
     zero fill -> 5%/50 s taper -> bandpass pre-filter -> Fourier resample if
-    needed -> trim/pad to [start, end]. Sub-sample start alignment
-    (segment_interpolate) is omitted: S3 archive day files start on integer
-    seconds, and the harness asserts this holds for evaluated data.
+    needed (with the sub-sample segment_interpolate alignment noisepy runs
+    inside that branch) -> trim/pad to [start, end].
     """
     from scipy.signal import detrend
 
@@ -311,8 +320,13 @@ def preprocess_raw_np(
             t0_ns -= int(round(fric * 1000))
 
     out, out_t0_ns = trim_pad0_np(merged, t0_ns, sr, start_ns, end_ns)
+    # keep the chain's natural dtype, mirroring noisepy exactly: float32
+    # without resample (the bandpass cast), FLOAT64 after resample (obspy
+    # resample returns float64 and noisepy never casts back), float32 again
+    # only when the fric branch's segment_interpolate cast fires. Forcing
+    # float32 here diverges from noisepy at 6e-8 whenever fric == 0.
     return NpChannelData(
-        data=np.asarray(out, dtype=np.float32),
+        data=np.asarray(out),
         sampling_rate=sr,
         start_timestamp=out_t0_ns / 1e9,
     )
