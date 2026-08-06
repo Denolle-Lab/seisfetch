@@ -4,6 +4,43 @@ All notable changes to seisfetch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org).
 
+## 0.3.1 — 2026-08-06
+
+Cross-station validation release: the noisepy equivalence evidence now
+covers cross-station cross-correlation across the three S3 archives
+(SCEDC × NCEDC × EarthScope), bit-identical through the resample and
+sub-sample-alignment branches, with instrument response removal
+demonstrated obspy-free end to end (PR #4).
+
+### Fixed
+
+- `contrib.noisepy_adapter.segment_interpolate_np` now reproduces noisepy's
+  numba mixed-precision semantics exactly on every numpy version
+  (`np.multiply(..., dtype=np.float64)`; the previous vectorization was
+  1 ulp off on ~30% of samples, ~2e-5 of CCF peak after stacking, and a
+  plain float64-scalar expression silently demotes to float32 under
+  numpy 1.x value-based casting).
+- `contrib.noisepy_adapter.preprocess_raw_np` keeps the chain's natural
+  dtype instead of force-casting float32 — noisepy leaves float64 after
+  resample whenever the sub-sample (fric) branch does not fire.
+- `contrib.response._parse_iso_utc` accepts fractional seconds of any
+  width (EarthScope II StationXML carries `.0000`, rejected by
+  `fromisoformat` before Python 3.11).
+
+### Added
+
+- Cross-station CCF equivalence harness
+  (`benchmarks/noisepy_eval/run_xcorr_eval.py`) with strict bit-identity
+  pass criterion, integration test, and a "NoisePy equivalence" section in
+  `benchmarks/RESULTS.md`/`.html` (tables + validation figures).
+- `notebooks/06_cross_correlation_three_archives.ipynb`: four stations,
+  three archives, two months, response removed with `contrib.response`
+  (7.6e-16 of peak vs obspy on real data), CCF stack convergence and a
+  distance record section.
+- Precision bank: numba-semantics reference test for
+  `segment_interpolate_np`, resample-branch chain-equivalence case,
+  StationXML fraction-width regression test.
+
 ## 0.3.0 — 2026-08-04
 
 The obspy-replacement evaluation release: parse rewrite, gap-aware API,
