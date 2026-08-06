@@ -44,6 +44,32 @@ def fetch_bytes(cache: Path, network, station, location, channel, day) -> bytes:
     return raw
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def to_epoch_ns(dt) -> int:
+    """Exact epoch nanoseconds. ``dt.timestamp() * 1e9`` loses integer
+    precision (~1e18 exceeds float64's 2**53 integer range, shifting the
+    value by hundreds of ns); timedelta division is exact integer math."""
+    return ((dt - _EPOCH) // timedelta(microseconds=1)) * 1000
+
+
+def snap_window(raw: bytes, nslc: str, day0, day1):
+    """Snap the day window to the channel's sample grid (nearest sample,
+    matching obspy trim), keeping the window length. Real archive day files
+    start sub-sample off midnight (CI.PASC is 0.218 samples off); the
+    adapter's alignment guard requires callers to resolve this, and both
+    paths must get the SAME snapped window for the comparison to be fair."""
+    from seisfetch.convert import parse_mseed
+
+    seg = parse_mseed(raw).segments()[nslc][0]
+    dt_ns = round(1e9 / seg.sampling_rate)
+    day0_ns = to_epoch_ns(day0)
+    start_ns = seg.starttime_ns + round((day0_ns - seg.starttime_ns) / dt_ns) * dt_ns
+    start = _EPOCH + timedelta(microseconds=start_ns // 1000)
+    return start, start + (day1 - day0)
+
+
 def make_config():
     from noisepy.seis.io.datatypes import (
         CCMethod,
@@ -99,8 +125,8 @@ def path_b(raw: bytes, cfg, start, end, nslc: str):
     from seisfetch.convert import parse_mseed
 
     segs = parse_mseed(raw).segments()[nslc]
-    start_ns = int(start.timestamp() * 1e9)
-    end_ns = int(end.timestamp() * 1e9)
+    start_ns = to_epoch_ns(start)
+    end_ns = to_epoch_ns(end)
     npcd = preprocess_raw_np(
         segs, start_ns, end_ns, cfg.freqmin, cfg.freqmax, cfg.sampling_rate
     )
@@ -163,8 +189,9 @@ def main() -> int:
         chan = f"{args.band}{c}"
         raw = fetch_bytes(cache, network, station, args.location, chan, args.day)
         nslc = f"{network}.{station}.{args.location}.{chan}"
-        ffts_a[c] = path_a(raw, cfg, day0, day1)
-        ffts_b[c] = path_b(raw, cfg, day0, day1, nslc)
+        w0, w1 = snap_window(raw, nslc, day0, day1)
+        ffts_a[c] = path_a(raw, cfg, w0, w1)
+        ffts_b[c] = path_b(raw, cfg, w0, w1, nslc)
 
     pairs = [("E", "N"), ("E", "Z"), ("N", "Z"), ("Z", "Z")]
     eps_grid = np.linspace(-0.05, 0.05, 161)
@@ -178,6 +205,8 @@ def main() -> int:
         b = cb.mean(axis=0)
         max_abs = float(np.abs(a - b).max())
         denom = float(np.abs(a).max())
+        if denom == 0.0:
+            raise RuntimeError(f"{s}{r}: all-zero CCF on path A — nothing to compare")
         wf_corr = float(np.corrcoef(a, b)[0, 1])
         cell_a = stretch_argmax(a, cfg.sampling_rate, eps_grid)
         cell_b = stretch_argmax(b, cfg.sampling_rate, eps_grid)

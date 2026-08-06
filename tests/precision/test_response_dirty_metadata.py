@@ -111,6 +111,20 @@ class TestEpochTimezones:
                 == 1500.0
             )
 
+    def test_arbitrary_fraction_widths_parse(self):
+        # EarthScope II StationXML carries ".0000" (4 digits); pre-3.11
+        # fromisoformat only accepts 3 or 6 -> fractions must be normalized
+        from seisfetch.contrib.response import _parse_iso_utc
+
+        base = _parse_iso_utc("2020-04-29T18:00:00")
+        for frac in (".0000", ".0", ".000000000", ".123"):
+            for suffix in ("", "Z", "+00:00"):
+                got = _parse_iso_utc(f"2020-04-29T18:00:00{frac}{suffix}")
+                if frac == ".123":
+                    assert got.microsecond == 123000
+                else:
+                    assert got == base
+
     def test_dashes_location_means_blank(self):
         xml = _xml()
         assert (

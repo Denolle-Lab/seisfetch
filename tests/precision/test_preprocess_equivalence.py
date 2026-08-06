@@ -25,6 +25,7 @@ from seisfetch.contrib.noisepy_adapter import (  # noqa: E402
     merge_fill0_np,
     preprocess_raw_np,
     resample_fourier_np,
+    segment_interpolate_np,
     taper_np,
     trim_pad0_np,
 )
@@ -131,6 +132,44 @@ class TestTrim:
         np.testing.assert_array_equal(got, tr.data)
 
 
+class TestSegmentInterpolate:
+    """segment_interpolate_np vs noisepy's numba-compiled original.
+
+    The numba signature is float32[:](float32[:], float32), and numba's type
+    unification makes (1 - nfric) FLOAT64 while nfric*sig1[ii] stays float32
+    — a precision mix no uniform-dtype implementation reproduces (found on
+    the 2026-08 three-archive cross-correlation run: all-float32 was 1 ulp
+    off on ~30% of samples, 2e-5 of peak in the stacked CCF). The reference
+    loop below encodes those exact semantics; run_xcorr_eval.py validates
+    the port against actual numba end-to-end (bit-identical, 2026-08-05).
+    """
+
+    @staticmethod
+    def _numba_reference(sig1, nfric):
+        nf = np.float32(nfric)
+        out = np.empty(len(sig1), np.float32)
+        out[0], out[-1] = sig1[0], sig1[-1]
+        for ii in range(1, len(sig1) - 1):
+            out[ii] = np.float32(
+                (1.0 - np.float64(nf)) * np.float64(sig1[ii + 1])
+                + np.float64(nf * sig1[ii])
+            )
+        return out
+
+    @pytest.mark.parametrize("nfric", [0.39076, 0.5, 0.0001, 0.9999])
+    def test_matches_numba_semantics(self, nfric):
+        x = (RNG.standard_normal(5001) * 1000).astype(np.float32)
+        np.testing.assert_array_equal(
+            segment_interpolate_np(x, nfric), self._numba_reference(x, nfric)
+        )
+
+    def test_matches_actual_numba_if_available(self):
+        noise_module = pytest.importorskip("noisepy.seis.noise_module")
+        x = (RNG.standard_normal(200001) * 1000).astype(np.float32)
+        ref = noise_module.segment_interpolate(x.copy(), 0.39076)
+        np.testing.assert_array_equal(segment_interpolate_np(x, 0.39076), ref)
+
+
 class TestGapRejection:
     def test_same_decision_as_noisepy_logic(self):
         raw = (FIXTURES / "gap_3seg.mseed").read_bytes()
@@ -181,8 +220,18 @@ class TestFullChain:
         st[0].trim(starttime=start, endtime=end, pad=True, fill_value=0)
         return st[0]
 
-    @pytest.mark.parametrize("name", ["gap_3seg.mseed", "enc_float32.mseed"])
-    def test_chain_equivalence(self, name):
+    # sr=20 exercises the Fourier-resample branch inside the chain (fixtures
+    # start on integer seconds, so the fric sub-sample branch stays off —
+    # that branch is covered by TestSegmentInterpolate + run_xcorr_eval.py)
+    @pytest.mark.parametrize(
+        "name,sr",
+        [
+            ("gap_3seg.mseed", 40.0),
+            ("enc_float32.mseed", 40.0),
+            ("enc_float32.mseed", 20.0),
+        ],
+    )
+    def test_chain_equivalence(self, name, sr):
         raw = (FIXTURES / name).read_bytes()
         segs = parse_mseed(raw).segments()["XX.FIX.00.BHZ"]
         t0 = segs[0].starttime_ns
@@ -191,8 +240,9 @@ class TestFullChain:
 
         start = obspy.UTCDateTime(start_ns / 1e9)
         end = obspy.UTCDateTime(end_ns / 1e9)
-        ref = self._obspy_chain(raw, start, end)
-        got = preprocess_raw_np(segs, start_ns, end_ns, 0.5, 19.0, 40.0)
+        freqmax = 19.0 if sr == 40.0 else 8.0
+        ref = self._obspy_chain(raw, start, end, freqmax=freqmax, sr=sr)
+        got = preprocess_raw_np(segs, start_ns, end_ns, 0.5, freqmax, sr)
 
         assert got.sampling_rate == ref.stats.sampling_rate
         assert got.data.shape == ref.data.shape

@@ -1,7 +1,7 @@
-# GitHub issue draft for EarthScope/pymseed — DO NOT SUBMIT, review first
+# GitHub issue draft for EarthScope/pymseed — SUBMITTED
 
-Status: draft written by the seisfetch benchmarking work (2026-08-03).
-Marine reviews before anything is posted. Nothing has been submitted.
+Status: submitted 2026-08-06 as https://github.com/EarthScope/pymseed/issues/6
+(with an added "Why this matters downstream" section). Kept here for the record.
 
 ---
 

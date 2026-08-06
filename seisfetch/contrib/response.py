@@ -39,6 +39,7 @@ the SCEDC/NCEDC public buckets mirror.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -138,6 +139,12 @@ def _parse_iso_utc(s: str) -> datetime:
     s = s.strip()
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
+    # real archives emit fractional seconds of any width (EarthScope II
+    # StationXML uses ".0000"); pre-3.11 fromisoformat only accepts 3 or
+    # 6 digits, so normalize the fraction to exactly 6
+    m = re.match(r"^([^.]*\.)(\d+)(.*)$", s)
+    if m:
+        s = m.group(1) + m.group(2)[:6].ljust(6, "0") + m.group(3)
     dt = datetime.fromisoformat(s)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
