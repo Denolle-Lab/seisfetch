@@ -5,6 +5,33 @@ Auto-generated from `benchmarks/results/*.json` by
 A self-contained HTML version with the same content lives at
 [`RESULTS.html`](RESULTS.html).
 
+## NoisePy equivalence (obspy-free path)
+
+Identical archive bytes fed through (A) obspy.read + noisepy `preprocess_raw` and (B) seisfetch parse + `contrib.noisepy_adapter` ports, then noisepy's own `compute_fft`/`correlate`. Pass requires **bit-identity** (`max_abs_diff == 0.0`). Harnesses: `benchmarks/noisepy_eval/run_ccf_eval.py` and `run_xcorr_eval.py` (integration tests in `tests/precision/`).
+
+### Single-station (CI.PASC day, SCEDC): EN/EZ/NZ cross-component + ZZ autocorrelation through real noisepy at 40 sps
+
+| Pair | max abs diff | waveform corr | pass |
+| --- | --- | --- | --- |
+| EN | 0.0e+00 | 1.000000000 | PASS |
+| EZ | 0.0e+00 | 1.000000000 | PASS |
+| NZ | 0.0e+00 | 1.000000000 | PASS |
+| ZZ | 0.0e+00 | 1.000000000 | PASS |
+
+### Cross-station, three archives (CI.PASC/SCEDC x BK.PKD/NCEDC x II.PFO/EarthScope) through real noisepy at 20 sps — the Fourier-resample and sub-sample-alignment branches run inside the chain
+
+| Pair | max abs diff | waveform corr | pass |
+| --- | --- | --- | --- |
+| PASC-PFO | 0.0e+00 | 1.000000000 | PASS |
+| PASC-PKD | 0.0e+00 | 1.000000000 | PASS |
+| PKD-PFO | 0.0e+00 | 1.000000000 | PASS |
+
+Visual validation (notebook `notebooks/06_cross_correlation_three_archives.ipynb`: two months, four stations, three archives, response removed with `seisfetch.contrib.response` — no obspy in the chain):
+
+![CCF stack progression, four pairs](plots/xcorr_stacks.png)
+
+![Stacked CCF record section vs distance](plots/xcorr_section.png)
+
 ## Plots
 
 The seisfetch vs obspy comparison at a glance (latest run per machine;

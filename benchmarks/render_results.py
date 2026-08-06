@@ -249,13 +249,21 @@ def render_html(md_text: str) -> None:
     def inline_img(m):
         rel = m.group(2)
         path = BENCH_DIR / rel
-        if path.exists():
-            svg = path.read_text().replace(chr(35), "%23")
+        if not path.exists():
+            return ""
+        if path.suffix == ".png":
+            import base64
+
+            b64 = base64.b64encode(path.read_bytes()).decode()
             return (
                 f'<figure><img alt="{m.group(1)}" '
-                f'src="data:image/svg+xml;utf8,{svg}"/></figure>'
+                f'src="data:image/png;base64,{b64}"/></figure>'
             )
-        return ""
+        svg = path.read_text().replace(chr(35), "%23")
+        return (
+            f'<figure><img alt="{m.group(1)}" '
+            f'src="data:image/svg+xml;utf8,{svg}"/></figure>'
+        )
 
     lines_out = [
         """<!doctype html><meta charset="utf-8">
@@ -462,13 +470,87 @@ def render_run(payload: dict) -> list[str]:
     return lines
 
 
+EQUIV_FILES = [
+    (
+        "ccf_eval_ci_pasc_2022-01-02.json",
+        "Single-station (CI.PASC day, SCEDC): EN/EZ/NZ cross-component + ZZ "
+        "autocorrelation through real noisepy at 40 sps",
+    ),
+    (
+        "xcorr_three_archives_2022-01-02.json",
+        "Cross-station, three archives (CI.PASC/SCEDC x BK.PKD/NCEDC x "
+        "II.PFO/EarthScope) through real noisepy at 20 sps — the "
+        "Fourier-resample and sub-sample-alignment branches run inside "
+        "the chain",
+    ),
+]
+
+
+def render_equivalence() -> list[str]:
+    """NoisePy CCF equivalence: obspy-fed vs seisfetch-fed paths.
+
+    Renders the harness JSONs (benchmarks/noisepy_eval/run_*_eval.py) and
+    embeds the visual-validation figures exported from notebook 06."""
+    lines = [
+        "## NoisePy equivalence (obspy-free path)",
+        "",
+        "Identical archive bytes fed through (A) obspy.read + noisepy "
+        "`preprocess_raw` and (B) seisfetch parse + "
+        "`contrib.noisepy_adapter` ports, then noisepy's own "
+        "`compute_fft`/`correlate`. Pass requires **bit-identity** "
+        "(`max_abs_diff == 0.0`). Harnesses: "
+        "`benchmarks/noisepy_eval/run_ccf_eval.py` and `run_xcorr_eval.py` "
+        "(integration tests in `tests/precision/`).",
+        "",
+    ]
+    found = False
+    for fname, caption in EQUIV_FILES:
+        path = RESULTS_DIR / fname
+        if not path.exists():
+            continue
+        found = True
+        data = json.loads(path.read_text())
+        lines += [f"### {caption}", ""]
+        headers = ["Pair", "max abs diff", "waveform corr", "pass"]
+        rows = [
+            [
+                pair,
+                f"{r.get('max_abs_diff', float('nan')):.1e}",
+                f"{r.get('waveform_corr', float('nan')):.9f}",
+                "PASS" if r.get("pass") else "FAIL",
+            ]
+            for pair, r in sorted(data.items())
+        ]
+        lines += _table(headers, rows)
+        lines.append("")
+    if not found:
+        return []
+    fig_lines = []
+    for fname, alt in (
+        ("xcorr_stacks.png", "CCF stack progression, four pairs"),
+        ("xcorr_section.png", "Stacked CCF record section vs distance"),
+    ):
+        if (PLOTS_DIR / fname).exists():
+            fig_lines.append(f"![{alt}](plots/{fname})")
+            fig_lines.append("")
+    if fig_lines:
+        lines += [
+            "Visual validation (notebook "
+            "`notebooks/06_cross_correlation_three_archives.ipynb`: two "
+            "months, four stations, three archives, response removed with "
+            "`seisfetch.contrib.response` — no obspy in the chain):",
+            "",
+        ] + fig_lines
+    return lines
+
+
 def main():
     payloads = []
     for path in sorted(RESULTS_DIR.glob("*.json")):
         payload = json.loads(path.read_text())
         if "machine" not in payload or "suites" not in payload:
             # auxiliary result files (e.g. CCF equivalence JSON) are not
-            # benchmark runs — skip instead of rendering an 'unknown' block
+            # benchmark runs — rendered by render_equivalence() instead
             continue
         payloads.append(payload)
     payloads.sort(
@@ -477,6 +559,7 @@ def main():
 
     have_plots = render_plots(payloads)
     lines = [HEADER]
+    lines += render_equivalence()
     if have_plots:
         lines.append(PLOT_SECTION)
     current_tag = None

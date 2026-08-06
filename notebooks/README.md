@@ -10,7 +10,7 @@ Tutorial notebooks for `seisfetch`.
 | [02_bulk_mining.ipynb](02_bulk_mining.ipynb) | Bulk requests, parallel fetch, cross-datacenter, save to zarr | `xarray`, `zarr` |
 | [03_xarray_zarr_pipeline.ipynb](03_xarray_zarr_pipeline.ipynb) | Multi-station xarray Dataset, zarr store, earth2studio interop pattern | `xarray`, `zarr` |
 | [05_response_removal.ipynb](05_response_removal.ipynb) | Instrument response removal without obspy: 4 methods on the Tōhoku day, residuals in time + frequency (fully offline, committed fixtures) | `matplotlib`, `obspy` (reference only) |
-| [06_cross_correlation_three_archives.ipynb](06_cross_correlation_three_archives.ipynb) | NoisePy cross-correlations of four stations pulled from three archives (SCEDC, NCEDC, EarthScope S3), obspy-free preprocessing, two-month stack with surface-wave moveouts (~2 GB fetch + ~40 min compute on first run) | `matplotlib`, `noisepy-seis` |
+| [06_cross_correlation_three_archives.ipynb](06_cross_correlation_three_archives.ipynb) | NoisePy cross-correlations of four stations pulled from three archives (SCEDC, NCEDC, EarthScope S3), obspy-free fetch, response removal (seisfetch contrib.response) and preprocessing, two-month stack with surface-wave moveouts (~2 GB fetch + ~40 min compute on first run) | `matplotlib`, `noisepy-seis` |
 
 ## Setup
 
