@@ -1,7 +1,7 @@
 """
 S3-based backends for seismic miniSEED data.
 
-Supports three open-data archives with different path conventions:
+Supports four open-data archives with different path conventions:
 
   EarthScope  s3://earthscope-geophysical-data  (us-east-2)
      miniseed/{NET}/{YEAR}/{DOY}/{STA}.{NET}.{YEAR}.{DOY}
@@ -11,14 +11,19 @@ Supports three open-data archives with different path conventions:
      continuous_waveforms/{YEAR}/{YEAR}_{DOY}/{NET}{STA}{LOC}{CHA}__{YEAR}{DOY}.ms
      One object per channel-day.
 
-  NCEDC       s3://ncedc-pds                    (us-east-2)
+  NCEDC       s3://ncedc-pds                    (us-west-2)
      continuous_waveforms/{NET}/{YEAR}/{YEAR}.{DOY}/{STA}.{NET}.{CHA}.{LOC}.D.{YEAR}.{DOY}
      One object per channel-day.
+
+  GeoNet      s3://geonet-open-data             (ap-southeast-2)
+     waveforms/miniseed/{YEAR}/{YEAR}.{DOY}/{STA}.{NET}/{YEAR}.{DOY}.{STA}.{LOC}-{CHA}.{NET}.D
+     One object per channel-day (New Zealand; NZ network).
 
 The :class:`S3Router` auto-selects the right datacenter by network code.
 
 Attribution:
   SCEDC — Yu et al. (2021), doi:10.7909/C3WD3xH1
+  GeoNet — https://www.geonet.org.nz/data/supplementary/channels (CC BY 4.0)
   NCEDC — doi:10.7932/NCEDC
   EarthScope — https://www.earthscope.org/how-to-cite/
   NoisePy S3 store pattern — Jiang & Denolle (2020), doi:10.1785/0220190364
@@ -83,6 +88,21 @@ def _ncedc_key(network, station, year, doy, location="", channel="", **_):
     )
 
 
+def _geonet_key(network, station, year, doy, location="", channel="", **_):
+    """GeoNet (New Zealand): one object per channel-day.
+
+    Layout (verified on the live bucket, 2026-08-07):
+    ``waveforms/miniseed/{Y}/{Y}.{DDD}/{STA}.{NET}/{Y}.{DDD}.{STA}.{LOC}-{CHA}.{NET}.D``
+    e.g. ``waveforms/miniseed/2022/2022.002/WEL.NZ/2022.002.WEL.10-HHZ.NZ.D``.
+    GeoNet channels always carry a numeric location code (10, 20, ...).
+    """
+    loc = location if location and location != "*" else ""
+    return (
+        f"waveforms/miniseed/{year}/{year}.{doy:03d}/{station}.{network}/"
+        f"{year}.{doy:03d}.{station}.{loc}-{channel}.{network}.D"
+    )
+
+
 # =========================================================================== #
 #  Datacenter configs
 # =========================================================================== #
@@ -103,8 +123,15 @@ DATACENTERS = {
     },
     "ncedc": {
         "bucket": "ncedc-pds",
-        "region": "us-east-2",
+        "region": "us-west-2",  # was us-east-2: worked via redirect, but
+        # ncedc-pds lives in us-west-2 — direct addressing avoids the hop
         "key_fn": _ncedc_key,
+        "per_channel": True,
+    },
+    "geonet": {
+        "bucket": "geonet-open-data",
+        "region": "ap-southeast-2",
+        "key_fn": _geonet_key,
         "per_channel": True,
     },
 }
@@ -153,8 +180,9 @@ def route_network(network: str) -> str:
     """
     Auto-select datacenter for a given network code.
 
-    Returns ``"scedc"``, ``"ncedc"``, or ``"earthscope"``.
-    SCEDC is preferred for CI; NCEDC for BK/NC; EarthScope for everything else.
+    Returns ``"scedc"``, ``"ncedc"``, ``"geonet"``, or ``"earthscope"``.
+    SCEDC is preferred for CI; NCEDC for BK/NC; GeoNet for NZ; EarthScope
+    for everything else.
     """
     net = network.upper()
     if net == "CI" or net in _SCEDC_NETS - _NCEDC_NETS:
@@ -163,6 +191,8 @@ def route_network(network: str) -> str:
         return "ncedc"
     if net in _SCEDC_NETS & _NCEDC_NETS:
         return "ncedc"  # prefer NCEDC for shared nets (NC, NP, etc.)
+    if net == "NZ":
+        return "geonet"
     return "earthscope"
 
 
@@ -173,13 +203,14 @@ def route_network(network: str) -> str:
 
 class S3OpenClient:
     """
-    Anonymous S3 access to EarthScope, SCEDC, and NCEDC open-data buckets.
+    Anonymous S3 access to the EarthScope, SCEDC, NCEDC, and GeoNet
+    open-data buckets.
 
     Parameters
     ----------
     datacenter : str or None
-        ``"earthscope"``, ``"scedc"``, ``"ncedc"``, or ``None`` (auto-route
-        by network code, default).
+        ``"earthscope"``, ``"scedc"``, ``"ncedc"``, ``"geonet"``, or
+        ``None`` (auto-route by network code, default).
     max_workers : int
         Thread pool for parallel downloads.
     """
@@ -295,6 +326,22 @@ class S3OpenClient:
                 if len(base) < 13:
                     continue
                 cha, loc = base[7:10], base[10:13].rstrip("_")
+                if not fnmatch.fnmatch(cha, channel):
+                    continue
+                if location != "*" and loc != (location or ""):
+                    continue
+                keys.append(key)
+        elif dc_name == "geonet":
+            prefix = (
+                f"waveforms/miniseed/{yr}/{yr}.{doy:03d}/"
+                f"{station}.{network}/{yr}.{doy:03d}.{station}."
+            )
+            for key in self._iter_keys(s3, dc["bucket"], prefix):
+                # {Y}.{DDD}.{STA}.{LOC}-{CHA}.{NET}.D
+                parts = key.rsplit("/", 1)[-1].split(".")
+                if len(parts) < 4 or "-" not in parts[3]:
+                    continue
+                loc, cha = parts[3].split("-", 1)
                 if not fnmatch.fnmatch(cha, channel):
                     continue
                 if location != "*" and loc != (location or ""):
@@ -482,6 +529,8 @@ class S3OpenClient:
             prefix = f"miniseed/{network}/{year}/{doy:03d}/"
         elif dc_name == "scedc":
             prefix = f"continuous_waveforms/{year}/{year}_{doy:03d}/{network}"
+        elif dc_name == "geonet":
+            prefix = f"waveforms/miniseed/{year}/{year}.{doy:03d}/"
         else:
             prefix = f"continuous_waveforms/{network}/{year}/{year}.{doy:03d}/"
         stations = set()
@@ -498,6 +547,11 @@ class S3OpenClient:
                     else fname[:5]
                 )
                 stations.add(sta.rstrip("_"))
+            elif dc_name == "geonet":
+                # .../{STA}.{NET}/{Y}.{DDD}.{STA}.{LOC}-{CHA}.{NET}.D
+                stadir = obj["Key"].rsplit("/", 2)[-2]
+                if stadir.endswith(f".{network}"):
+                    stations.add(stadir.rsplit(".", 1)[0])
             else:  # ncedc
                 stations.add(fname.split(".")[0])
         return sorted(stations)

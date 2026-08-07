@@ -8,6 +8,7 @@ from moto import mock_aws
 from seisfetch.s3 import (
     S3OpenClient,
     _earthscope_key,
+    _geonet_key,
     _ncedc_key,
     _scedc_key,
     route_network,
@@ -35,6 +36,12 @@ class TestKeyBuilders:
         k = _ncedc_key("NC", "JBL", 2023, 1, location="", channel="HHZ")
         assert "JBL.NC.HHZ..D.2023.001" in k
 
+    def test_geonet(self):
+        # verified against the live bucket 2026-08-07:
+        # waveforms/miniseed/2022/2022.002/WEL.NZ/2022.002.WEL.10-HHZ.NZ.D
+        k = _geonet_key("NZ", "WEL", 2022, 2, location="10", channel="HHZ")
+        assert k == ("waveforms/miniseed/2022/2022.002/WEL.NZ/2022.002.WEL.10-HHZ.NZ.D")
+
 
 # ── Network routing ────────────────────────────────────────────────── #
 
@@ -58,6 +65,9 @@ class TestRouteNetwork:
     def test_nc_shared_prefers_ncedc(self):
         # NC is in both SCEDC and NCEDC; should prefer NCEDC
         assert route_network("NC") == "ncedc"
+
+    def test_nz_to_geonet(self):
+        assert route_network("NZ") == "geonet"
 
     def test_case_insensitive(self):
         assert route_network("ci") == "scedc"
