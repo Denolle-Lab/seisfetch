@@ -1,7 +1,14 @@
 # GitHub issue draft for EarthScope/pymseed — SUBMITTED
 
 Status: submitted 2026-08-06 as https://github.com/EarthScope/pymseed/issues/6
-(with an added "Why this matters downstream" section). Kept here for the record.
+(with an added "Why this matters downstream" section). RESOLVED 2026-08-07:
+Chad Trabant implemented proposal #1 in pymseed 0.9.4 (commit 3e06380, "Hold
+the trace list from its data sample views") — the np_datasamples view now
+pins the trace list and survives GC, so the copy idiom is unnecessary.
+Verified: safe view = 21.8 ms in the 0.5cpu/512m container (was 94.4 ms with
+the copy), matching the record-list path; seisfetch tests pass on 0.9.4
+(already inside the >=0.6,<0.10 pin). seisfetch stays on the record-list
+path for the per-record encoding metadata. Kept here for the record.
 
 ---
 
