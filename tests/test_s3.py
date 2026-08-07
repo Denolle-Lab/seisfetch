@@ -36,6 +36,10 @@ class TestKeyBuilders:
         k = _ncedc_key("NC", "JBL", 2023, 1, location="", channel="HHZ")
         assert "JBL.NC.HHZ..D.2023.001" in k
 
+    def test_geonet_blank_location_raises(self):
+        with pytest.raises(ValueError, match="location code"):
+            _geonet_key("NZ", "WEL", 2022, 2, location="", channel="HHZ")
+
     def test_geonet(self):
         # verified against the live bucket 2026-08-07:
         # waveforms/miniseed/2022/2022.002/WEL.NZ/2022.002.WEL.10-HHZ.NZ.D

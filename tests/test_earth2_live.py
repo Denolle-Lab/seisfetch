@@ -47,6 +47,23 @@ class TestChannelText:
         assert len(now) == 1 and now[0].scale == 600000000.0
         assert len(old) == 1 and old[0].scale == 300000000.0
 
+    def test_covers_is_timezone_safe(self):
+        # lexicographic string comparison fails on offset/fraction variants;
+        # these must all select the modern epoch (Copilot review, PR #5)
+        eps = parse_channel_text(TEXT)
+        modern = eps[0]
+        for t in (
+            "2022-01-02T00:00:00+00:00",
+            "2022-01-02T00:00:00Z",
+            "2022-01-01T19:00:00-05:00",
+            "2022-01-02T00:00:00.0000",
+        ):
+            assert modern.covers(t), t
+        # 2009-12-31T19:00-05:00 == 2010-01-01T00:00Z: modern epoch, not
+        # the old one — exactly the case string comparison gets wrong
+        assert modern.covers("2009-12-31T19:00:00-05:00")
+        assert not eps[1].covers("2009-12-31T19:00:00-05:00")
+
     def test_blank_scale_is_none(self):
         row = TEXT.splitlines()[1].split("|")
         row[11] = ""
@@ -116,6 +133,31 @@ class TestLiveSource:
         t0 = datetime(2024, 1, 15, 0, 0, 0, tzinfo=timezone.utc)
         da = src([t0, t0])
         assert da.shape[0] == 2
+
+    def test_zero_scale_raises(self, monkeypatch):
+        src = self._source(monkeypatch)
+        src._meta[self.NSLC][0] = ChannelEpoch(
+            **{**src._meta[self.NSLC][0].__dict__, "scale": 0.0}
+        )
+        t0 = datetime(2024, 1, 15, 0, 0, 0, tzinfo=timezone.utc)
+        with pytest.raises(LookupError, match="Scale=0"):
+            src(t0)
+
+    def test_units_from_metadata(self, monkeypatch):
+        # an accelerometer channel must not be labeled m/s
+        src = self._source(monkeypatch)
+        src._meta[self.NSLC][0] = ChannelEpoch(
+            **{**src._meta[self.NSLC][0].__dict__, "scale_units": "M/S**2"}
+        )
+        t0 = datetime(2024, 1, 15, 0, 0, 0, tzinfo=timezone.utc)
+        da = src(t0)
+        assert da.attrs["units"] == "M/S**2 (gain-corrected)"
+
+    def test_datacenter_override_routes_metadata(self):
+        src = SeisfetchLiveSource(["IU.ANMO.00.BHZ"], datacenter="geonet")
+        assert src._provider("IU") == "GEONET"
+        src2 = SeisfetchLiveSource(["IU.ANMO.00.BHZ"])
+        assert src2._provider("IU") == "EARTHSCOPE"
 
     def test_missing_scale_raises(self, monkeypatch):
         src = self._source(monkeypatch)

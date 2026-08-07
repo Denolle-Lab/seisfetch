@@ -16,7 +16,8 @@ Attributions:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -385,6 +386,15 @@ _DC_TO_PROVIDER = {
 }
 
 
+def _iso_utc(dt: datetime) -> str:
+    """Normalized UTC ISO string (no offset suffix): naive datetimes are
+    taken as UTC. Keeps epoch selection and StationXML parsing free of
+    "+00:00"-suffix ambiguity."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.isoformat()
+
+
 def channel_metadata(network, station, location, channel, start, end, provider=None):
     """Channel epochs (gain + coordinates) via the FDSN station text service.
 
@@ -463,27 +473,52 @@ class SeisfetchLiveSource:
         self._day_cache: dict = {}  # (nslc, date) -> TraceBundle
         self._meta: dict = {}  # nslc -> list[ChannelEpoch]
         self._resp: dict = {}  # nslc -> ChannelResponse (calibrate="response")
+        self._units: dict = {}  # nslc -> ScaleUnits of the last-used epoch
+        # one coarse lock guards all three caches: fetch() runs __call__ in
+        # worker threads, and unsynchronized eviction/population races
+        self._lock = threading.Lock()
+
+    def _provider(self, network: str) -> str:
+        # metadata must come from the same archive as the waveforms: honor
+        # the datacenter override instead of always routing by network
+        from seisfetch.s3 import route_network
+
+        return _DC_TO_PROVIDER[self._datacenter or route_network(network)]
 
     # -- metadata ---------------------------------------------------------- #
 
     def _epochs(self, nslc: str):
-        if nslc not in self._meta:
-            net, sta, loc, cha = nslc.split(".")
-            self._meta[nslc] = channel_metadata(
-                net, sta, loc, cha, "1970-01-01", "2100-01-01"
-            )
-            if not self._meta[nslc]:
-                raise LookupError(f"no channel metadata for {nslc}")
-        return self._meta[nslc]
+        with self._lock:
+            if nslc not in self._meta:
+                net, sta, loc, cha = nslc.split(".")
+                eps = channel_metadata(
+                    net,
+                    sta,
+                    loc,
+                    cha,
+                    "1970-01-01",
+                    "2100-01-01",
+                    provider=self._provider(net),
+                )
+                if not eps:
+                    raise LookupError(f"no channel metadata for {nslc}")
+                self._meta[nslc] = eps
+            return self._meta[nslc]
 
     def _gain(self, nslc: str, time_iso: str) -> float:
         for ep in self._epochs(nslc):
             if ep.covers(time_iso):
-                if not ep.scale:
+                if ep.scale is None:
                     raise LookupError(
                         f"{nslc}: channel epoch has no Scale (sensitivity) — "
                         "cannot calibrate"
                     )
+                if ep.scale == 0.0:
+                    raise LookupError(
+                        f"{nslc}: channel epoch declares Scale=0 — defective "
+                        "metadata, refusing to divide"
+                    )
+                self._units[nslc] = ep.scale_units or "unknown"
                 return ep.scale
         raise LookupError(f"{nslc}: no channel epoch covers {time_iso}")
 
@@ -498,15 +533,19 @@ class SeisfetchLiveSource:
         from seisfetch.s3 import S3OpenClient
 
         key = (nslc, day.isoformat())
-        if key not in self._day_cache:
-            net, sta, loc, cha = nslc.split(".")
-            raw = S3OpenClient(datacenter=self._datacenter).get_raw(
-                net, sta, day.isoformat(), location=loc, channel=cha
-            )
-            self._day_cache[key] = parse_mseed(raw)
+        with self._lock:
+            if key in self._day_cache:
+                return self._day_cache[key]
+        net, sta, loc, cha = nslc.split(".")
+        raw = S3OpenClient(datacenter=self._datacenter).get_raw(
+            net, sta, day.isoformat(), location=loc, channel=cha
+        )
+        bundle = parse_mseed(raw)
+        with self._lock:
+            self._day_cache.setdefault(key, bundle)
             while len(self._day_cache) > self._cache_days * len(self.channels):
                 self._day_cache.pop(next(iter(self._day_cache)))
-        return self._day_cache[key]
+            return self._day_cache[key]
 
     def _window(self, nslc: str, t0: datetime) -> np.ndarray:
         """One calibrated window [t0, t0+window_s), NaN-padded over gaps."""
@@ -533,7 +572,7 @@ class SeisfetchLiveSource:
             j0, j1 = max(i0, 0), min(i0 + s.npts, n)
             if j1 > j0:
                 out[j0:j1] = src[j0 - i0 : j1 - i0]
-        t_iso = t0.isoformat()
+        t_iso = _iso_utc(t0)
         if self.calibrate == "gain":
             return out / self._gain(nslc, t_iso)
         return self._deconvolve(nslc, out, fs, t_iso)
@@ -544,13 +583,12 @@ class SeisfetchLiveSource:
             remove_response_np,
         )
         from seisfetch.fdsn import FDSNClient
-        from seisfetch.s3 import route_network
 
-        if nslc not in self._resp:
+        with self._lock:
+            cached = nslc in self._resp
+        if not cached:
             net, sta, loc, cha = nslc.split(".")
-            xml = FDSNClient(
-                provider=_DC_TO_PROVIDER[route_network(net)]
-            ).get_station_text(
+            xml = FDSNClient(provider=self._provider(net)).get_station_text(
                 network=net,
                 station=sta,
                 location=loc if loc else "--",
@@ -558,9 +596,9 @@ class SeisfetchLiveSource:
                 level="response",
                 format="xml",
             )
-            self._resp[nslc] = parse_stationxml_response(
-                xml.encode(), net, sta, loc, cha, time_iso
-            )
+            resp = parse_stationxml_response(xml.encode(), net, sta, loc, cha, time_iso)
+            with self._lock:
+                self._resp.setdefault(nslc, resp)
         mask = np.isnan(x)
         filled = np.where(mask, 0.0, x)
         v = remove_response_np(filled, fs, self._resp[nslc], output="VEL")
@@ -601,12 +639,19 @@ class SeisfetchLiveSource:
                 "sample": np.arange(nsamp),
             },
             attrs={
-                "units": "m/s (gain-corrected)"
-                if self.calibrate == "gain"
-                else "m/s (response-removed)",
+                "units": self._units_attr(variables),
                 "calibration": self.calibrate,
             },
         )
+
+    def _units_attr(self, variables) -> str:
+        if self.calibrate == "response":
+            return "m/s (response-removed)"
+        # gain mode: report the channels' ScaleUnits from metadata (an
+        # accelerometer channel is M/S**2, not m/s)
+        units = {self._units.get(v, "unknown") for v in variables}
+        label = units.pop() if len(units) == 1 else "mixed: " + ", ".join(sorted(units))
+        return f"{label} (gain-corrected)"
 
     async def fetch(self, time, variable=None):
         """True async fetch: runs the blocking pipeline in a worker thread."""

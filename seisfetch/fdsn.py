@@ -80,6 +80,29 @@ def resolve_provider(provider: str) -> str:
     )
 
 
+def _iso_to_utc(s: str):
+    """ISO 8601 -> aware UTC datetime (stdlib only). Handles 'Z', numeric
+    offsets, and fractional seconds of any width; naive times are UTC.
+    String comparison of ISO timestamps breaks as soon as one side carries
+    an offset or a different fraction width — epochs must be compared as
+    datetimes."""
+    import re
+    from datetime import datetime, timezone
+
+    s = s.strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    m = re.match(r"^([^.]*\.)(\d+)(.*)$", s)
+    if m:
+        s = m.group(1) + m.group(2)[:6].ljust(6, "0") + m.group(3)
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 @dataclass(frozen=True)
 class ChannelEpoch:
     """One row of fdsnws-station ``format=text&level=channel`` output —
@@ -109,8 +132,12 @@ class ChannelEpoch:
     end: str | None
 
     def covers(self, time_iso: str) -> bool:
-        t = str(time_iso)
-        return self.start <= t and (self.end is None or t <= self.end)
+        t = _iso_to_utc(str(time_iso))
+        if t is None:
+            raise ValueError(f"unparseable time {time_iso!r}")
+        start = _iso_to_utc(self.start)
+        end = _iso_to_utc(self.end) if self.end else None
+        return (start is None or start <= t) and (end is None or t <= end)
 
 
 def parse_channel_text(text: str) -> list[ChannelEpoch]:

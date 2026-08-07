@@ -94,9 +94,16 @@ def _geonet_key(network, station, year, doy, location="", channel="", **_):
     Layout (verified on the live bucket, 2026-08-07):
     ``waveforms/miniseed/{Y}/{Y}.{DDD}/{STA}.{NET}/{Y}.{DDD}.{STA}.{LOC}-{CHA}.{NET}.D``
     e.g. ``waveforms/miniseed/2022/2022.002/WEL.NZ/2022.002.WEL.10-HHZ.NZ.D``.
-    GeoNet channels always carry a numeric location code (10, 20, ...).
+    GeoNet channels always carry a numeric location code (10, 20, ...),
+    so a blank location cannot form a valid key — use ``location="*"``
+    (wildcard discovery) or pass the real code.
     """
     loc = location if location and location != "*" else ""
+    if not loc:
+        raise ValueError(
+            "GeoNet keys require a location code (e.g. '10'); use "
+            "location='*' to discover it"
+        )
     return (
         f"waveforms/miniseed/{year}/{year}.{doy:03d}/{station}.{network}/"
         f"{year}.{doy:03d}.{station}.{loc}-{channel}.{network}.D"
