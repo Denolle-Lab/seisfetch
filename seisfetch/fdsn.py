@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
 from seisfetch.exceptions import FDSNError, FetchError
 from seisfetch.utils import to_epoch, to_isoformat
@@ -77,6 +78,106 @@ def resolve_provider(provider: str) -> str:
         f"Unknown FDSN provider {provider!r}. "
         f"Known: {', '.join(sorted(PROVIDERS))}. Or pass a full URL."
     )
+
+
+def _iso_to_utc(s: str):
+    """ISO 8601 -> aware UTC datetime (stdlib only). Handles 'Z', numeric
+    offsets, and fractional seconds of any width; naive times are UTC.
+    String comparison of ISO timestamps breaks as soon as one side carries
+    an offset or a different fraction width — epochs must be compared as
+    datetimes."""
+    import re
+    from datetime import datetime, timezone
+
+    s = s.strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    m = re.match(r"^([^.]*\.)(\d+)(.*)$", s)
+    if m:
+        s = m.group(1) + m.group(2)[:6].ljust(6, "0") + m.group(3)
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+@dataclass(frozen=True)
+class ChannelEpoch:
+    """One row of fdsnws-station ``format=text&level=channel`` output —
+    the lean route to instrument gain and coordinates: one HTTP request,
+    stdlib parsing, no StationXML, no ObsPy.
+
+    ``scale`` is the total sensitivity (counts per ``scale_units`` ground
+    motion, referenced at ``scale_frequency`` Hz). Dividing raw counts by
+    ``scale`` is a GAIN correction: exact at the reference frequency, flat
+    to the instrument's passband shape elsewhere. For full deconvolution
+    use :mod:`seisfetch.contrib.response`.
+    """
+
+    network: str
+    station: str
+    location: str
+    channel: str
+    latitude: float
+    longitude: float
+    elevation: float
+    depth: float
+    scale: float | None
+    scale_frequency: float | None
+    scale_units: str | None
+    sample_rate: float
+    start: str
+    end: str | None
+
+    def covers(self, time_iso: str) -> bool:
+        t = _iso_to_utc(str(time_iso))
+        if t is None:
+            raise ValueError(f"unparseable time {time_iso!r}")
+        start = _iso_to_utc(self.start)
+        end = _iso_to_utc(self.end) if self.end else None
+        return (start is None or start <= t) and (end is None or t <= end)
+
+
+def parse_channel_text(text: str) -> list[ChannelEpoch]:
+    """Parse fdsnws-station ``format=text&level=channel`` rows.
+
+    Column order per the FDSN spec: Network|Station|Location|Channel|
+    Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|
+    Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime.
+    """
+
+    def _f(v):
+        v = v.strip()
+        return float(v) if v else None
+
+    out = []
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        p = line.split("|")
+        if len(p) < 17:
+            continue
+        out.append(
+            ChannelEpoch(
+                network=p[0].strip(),
+                station=p[1].strip(),
+                location=p[2].strip(),
+                channel=p[3].strip(),
+                latitude=float(p[4]),
+                longitude=float(p[5]),
+                elevation=_f(p[6]) or 0.0,
+                depth=_f(p[7]) or 0.0,
+                scale=_f(p[11]),
+                scale_frequency=_f(p[12]),
+                scale_units=(p[13].strip() or None),
+                sample_rate=float(p[14]),
+                start=p[15].strip(),
+                end=(p[16].strip() or None),
+            )
+        )
+    return out
 
 
 def list_providers() -> dict[str, str]:

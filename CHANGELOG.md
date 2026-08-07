@@ -4,6 +4,31 @@ All notable changes to seisfetch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- **GeoNet (New Zealand)** open-data S3 archive: `geonet-open-data`
+  (ap-southeast-2), per-channel day objects, wildcard discovery and
+  station listing; `NZ` routes there automatically. Verified live.
+- **`SeisfetchLiveSource`** (`seisfetch.earth2`): a time-indexed
+  Earth2Studio `DataSource` that fetches on demand from the four archives
+  with a day-bundle cache — physical units are required (`calibrate="gain"`
+  by default via the FDSN station text service; `"response"` for full
+  deconvolution via `contrib.response`; raw counts are never returned).
+- `ChannelEpoch` + `parse_channel_text` (`seisfetch.fdsn`): stdlib parsing
+  of `format=text&level=channel` — gain, coordinates and epochs in one
+  HTTP request, no StationXML.
+- `SeismicDataFrameSource(auto_coords=True)` fills station lat/lon from
+  the FDSN station service automatically.
+
+### Changed
+
+- Earth2Studio adapters' `fetch` is now genuinely async
+  (`asyncio.to_thread`), so pipelines can overlap sources.
+- NCEDC S3 region corrected to us-west-2 (was us-east-2; worked via
+  redirect but paid a cross-region hop per request).
+
 ## 0.3.1 — 2026-08-06
 
 Cross-station validation release: the noisepy equivalence evidence now
