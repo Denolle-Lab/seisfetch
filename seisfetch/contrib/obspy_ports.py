@@ -196,7 +196,7 @@ def gps2dist_azimuth_np(
     lon2: float,
     a: float = WGS84_A,
     f: float = WGS84_F,
-):
+) -> tuple[float, float, float]:
     """Port of ``obspy.geodetics.base.gps2dist_azimuth`` (Vincenty inverse).
 
     Returns ``(distance_m, azimuth_A_to_B_deg, azimuth_B_to_A_deg)`` on the

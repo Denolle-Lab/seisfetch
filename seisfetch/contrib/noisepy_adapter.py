@@ -322,7 +322,12 @@ def preprocess_raw_np(
     # to carry the same start time obspy would: an 80 ns difference shifts
     # nfric by ~1.6e-6 and the interpolated output by ~1e-8 relative, which
     # is small but NOT bit-identical, and bit-identity is the contract.
-    t0_ns = int(round(t0_ns / 1000.0)) * 1000
+    # Pure integer arithmetic: at epoch-nanosecond magnitudes (~1.6e18) the
+    # float quotient has a 0.25 ulp, so `round(t0_ns / 1000.0)` quantizes the
+    # sub-microsecond part to 250 ns steps and lands on a different microsecond
+    # for ~13% of arbitrary nanosecond inputs — plus round() is half-to-even.
+    # Neither is acceptable when the contract is bit-identity.
+    t0_ns = ((t0_ns + 500) // 1000) * 1000
     merged = taper_np(merged, sps, max_percentage=0.05, max_length=50)
     merged = np.float32(bandpass_np(merged, f1, f4, df=sps, corners=4, zerophase=True))
 

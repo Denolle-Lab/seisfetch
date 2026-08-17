@@ -23,13 +23,21 @@ between the numpy pre-processing chain and noisepy's obspy one.
 
 ### Fixed
 
-- `contrib.noisepy_adapter.preprocess_raw_np` now rounds segment start times
-  to whole microseconds, as obspy's miniSEED reader does. pymseed keeps exact
-  nanoseconds; noisepy derives its sub-sample correction from
-  `UTCDateTime.microsecond`, so on a day file starting at
-  00:00:00.019537920 the two chains computed `nfric` 1.6e-6 apart and the
-  output differed by ~1e-8 relative — small, but not bit-identical, and
-  bit-identity is the contract.
+- `contrib.noisepy_adapter.preprocess_raw_np` now rounds the merged start
+  time to whole microseconds, as obspy's miniSEED reader does, so noisepy's
+  sub-sample correction (derived from `UTCDateTime.microsecond`) cannot see a
+  different value than the obspy chain would. The rounding uses integer
+  arithmetic: at epoch-nanosecond magnitudes a float quotient carries a
+  0.25 ulp, which quantizes the sub-microsecond part to 250 ns steps and
+  picks a different microsecond for ~13 % of arbitrary inputs, and `round()`
+  is half-to-even besides.
+
+  Honest scope: this is a guard, not an observed repair. Scanning 3026
+  segments across all cached SCEDC, NCEDC and EarthScope day files found
+  **zero** with a sub-microsecond start — pymseed 0.9.4 reports whole
+  microseconds on every one, so the line is a no-op on all data available
+  here and both roundings agree with obspy on every fixture. It costs
+  nothing and closes the hole if sub-microsecond starts ever appear.
 - The `gps2dist_azimuth_np` equivalence tests asserted exact equality against
   whichever branch obspy happened to take, so they failed on any machine with
   `geographiclib` installed — obspy delegates to it when present and only
