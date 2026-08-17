@@ -1,5 +1,5 @@
 """
-seisfetch: Fast seismic miniSEED from EarthScope, SCEDC, NCEDC,
+seisfetch: Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, GeoNet,
 and 37+ FDSN servers.
 
 Core deps: numpy + boto3 + pymseed.  No ObsPy required.
@@ -7,7 +7,8 @@ Core deps: numpy + boto3 + pymseed.  No ObsPy required.
 S3 archives:
   EarthScope  s3://earthscope-geophysical-data  (us-east-2, auth via earthscope-sdk)
   SCEDC       s3://scedc-pds                    (us-west-2)
-  NCEDC       s3://ncedc-pds                    (us-east-2)
+  NCEDC       s3://ncedc-pds                    (us-west-2)
+  GeoNet      s3://geonet-open-data             (ap-southeast-2)
 
 Optional outputs:
   pandas  → bundle_to_metadata_table(), write_metadata_csv()
@@ -75,6 +76,7 @@ def __dir__():
 # Earth2Studio adapters — lazy import (requires earth2studio + xarray)
 try:
     from seisfetch.earth2 import (
+        SeisfetchLiveSource,
         SeismicDataFrameSource,
         SeismicDataSource,
         bundle_to_earth2,
@@ -87,7 +89,7 @@ try:
 
     __version__ = _pkg_version("seisfetch")
 except Exception:  # not installed (e.g. vendored copy)
-    __version__ = "0.3.0"
+    __version__ = "0.4.0"
 __all__ = [
     "SeisfetchClient",
     "S3OpenClient",
@@ -119,5 +121,6 @@ __all__ = [
     "requests_from_csv",
     "SeismicDataSource",
     "SeismicDataFrameSource",
+    "SeisfetchLiveSource",
     "bundle_to_earth2",
 ]
