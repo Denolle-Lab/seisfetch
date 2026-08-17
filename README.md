@@ -155,10 +155,51 @@ and `correlate`. The pass criterion is bit-identity, not closeness:
 | dv/v stretching | same grid cell on all pairs |
 
 The cross-station run matters because it exercises the Fourier-resample and
-sub-sample-alignment branches inside the chain. Instrument response removal is
-obspy-free end to end and agrees with ObsPy to 7.6e-16 of peak amplitude on
-real data. Tables, plots and the harnesses:
-[benchmarks/RESULTS.md](benchmarks/RESULTS.md).
+sub-sample-alignment branches inside the chain. Tables, plots and the
+harnesses: [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
+
+Scope note: this bit-identity result covers the preprocessing chain at
+`rm_resp=NO`. Response removal is validated separately, below.
+
+### Response removal without evalresp
+
+Response removal was the one ObsPy capability the NoisePy migration still
+needed. `seisfetch.contrib.response` provides it in ~577 lines of numpy and
+stdlib `xml.etree` — no evalresp C library, no ObsPy, no lxml, and no scipy in
+that module. ObsPy has no pure-Python response evaluator (`remove_response`
+calls compiled evalresp), so every stage was re-derived and then checked
+against the compiled implementation:
+
+| Check | Result |
+|---|---|
+| `evaluate_response(mode="full")` vs compiled evalresp — both CI.PASC epochs, VEL/ACC/DISP, 1 mHz–19.9 Hz | max rel diff `1.6e-10` |
+| `remove_response_np` vs `Trace.remove_response` — real 6.9M-sample Tohoku day, water_level=60, pre_filt | `6.6e-16` of peak |
+| Same, CI.PASC demo hour in notebook 06 | `7.6e-16` of peak |
+| Deconvolve that Tohoku day | 1.9 s vs ObsPy 3.6 s |
+
+Two evaluation modes: `mode="full"` is evalresp-equivalent (all stages, analog
+and digital poles/zeros, FIR/Coefficients with DC normalization and the
+`Decimation/CorrectionApplied` phase advance). `mode="paz"` is the SACPZ
+shortcut — 0.7–1.3 % error below 4 Hz but ~23 % by 16 Hz, since the FIR
+anti-alias roll-off is unmodeled; don't use it above ~Nyquist/3.
+
+Two deconvolution styles: `remove_response_np` ports ObsPy's water-level
+method for drop-in equivalence, and `translate_resp_np` follows SeisIO.jl's
+translation approach, taking stabilization from the target response's own
+roll-off instead of a water level.
+
+Defective metadata fails loudly — zero or missing gains, degenerate
+normalization references, zero-sum FIR stages, polynomial and `ResponseList`
+stages all raise with the stage number named, never a silent NaN or unity
+gain. Not implemented, and raising rather than approximating: IIR
+`Coefficients` stages with denominators, polynomial (blockette-62) responses,
+`ResponseList` stages. Metadata is StationXML only; RESP and SACPZ files are
+not parsed.
+
+Full derivation, the conditional-A0 finding about evalresp's normalization
+rule, and the SeisIO comparison:
+[docs/response-removal-design.md](docs/response-removal-design.md). Tutorial:
+[notebooks/05_response_removal.ipynb](notebooks/05_response_removal.ipynb).
 
 ## Quick Start
 
