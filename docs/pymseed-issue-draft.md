@@ -76,12 +76,49 @@ This sharpens the native result rather than overturning it:
 - The copy idiom remains the worst path and is the only one that degrades
   with tighter limits, reproducing the original issue's finding.
 
-Caveats on these numbers: one file with a single trace/segment, so the
-record-list advantage may not generalize to many-segment or many-channel
-objects; and Docker Desktop on macOS runs a Linux VM, so this is
-cgroup-in-VM rather than bare Linux — the same property the original issue's
-measurements had, which makes them comparable to each other but not a
-substitute for real Fargate/Lambda.
+### Does it change with realistic station-day objects? Yes — it doubles
+
+The tests above use one 11 MB channel-day that merges to a single
+trace/segment, which is the friendliest possible case for the unpack paths.
+Re-run over real EarthScope station-day objects from the xcorr cache
+(`earthscope.II.PFO.all.*`, 44 traceids / ~50 segments each), which is what
+the archive actually serves:
+
+| case | fargate 2cpu/4g, 4 files (106 MB, 194 seg) | lambda-1g, 2 files (52 MB, 97 seg) |
+|---|---|---|
+| | 0.9.4 / 0.9.5 | 0.9.4 / 0.9.5 |
+| `record_list` → `create_numpy_array_from_recordlist()` | **216.9 / 215.7** | **155.9 / 151.6** |
+| `unpack_data=True` → `np_datasamples` (safe view) | 451.2 / 447.4 | 391.4 / 384.2 |
+| `unpack_data=True` → `take_np_datasamples()` | n/a / 450.6 | n/a / 341.6 |
+| `unpack_data=True` → `np_datasamples.copy()` | 483.1 / 481.1 | 407.6 / 409.3 |
+
+Minimum ms per round, where a round decodes every file in the set. The
+fargate column is 2 containers x 7 reps per version; the lambda-1g column is
+a single container x 7 reps.
+
+- **The record-list lead grows from ~1.3x to ~2.1x.** On the single-segment
+  file it was 21.6 vs 27.7 ms; on 194-segment station-days it is 216 vs 447.
+  The advantage scales with segment count, which fits the mechanism:
+  `mstl3_unpack_recordlist` decodes straight into one numpy-owned allocation
+  per segment, while `unpack_data=True` decodes into libmseed's own buffers
+  and then wraps each segment, paying per-segment overhead that the
+  record-list path never incurs.
+- **This is the case that matters for us.** EarthScope objects are
+  station-days with tens of channels; the single-segment channel-day is the
+  SCEDC/NCEDC shape. So the path seisfetch already uses wins by the largest
+  margin exactly where our heaviest objects live.
+- **One place `take_np` does appear to help**: at lambda-1g with 97 segments
+  it came in at 341.6 ms against 384.2 for the plain view, consistent across
+  min/p25/median. Plausible mechanism — releasing the trace list earlier
+  relieves memory pressure when many segments are live at once. Single run,
+  so treat as suggestive rather than established. It is still ~2.2x slower
+  than the record-list path.
+
+Caveats on all of the above: Docker Desktop on macOS runs a Linux VM, so this
+is cgroup-in-VM rather than bare Linux — the same property the original
+issue's measurements had, which makes them comparable to each other but not a
+substitute for real Fargate/Lambda. Files are read into memory before timing,
+so these measure decode only, not S3 transfer.
 
 Release safety, checked separately: `parse_mseed` output is **bit-identical
 between 0.9.4 and 0.9.5** across every fixture (Steim2 day, float32, float64,

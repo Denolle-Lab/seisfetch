@@ -3,6 +3,14 @@
 Only the four cases that matter, interleaved in a shuffled order each round
 so host drift and CPU-quota refill cancel instead of biasing whichever case
 runs first.
+
+Usage:
+  python benchmarks/ab_pymseed_paths.py [REPS] [GLOB]
+
+With no GLOB the single-segment 11 MB Steim2 channel-day in tests/ is used.
+Pass a glob (e.g. '/data/earthscope.*.ms') to time the whole set per round
+instead — station-day objects carry tens of traceids and segments, and the
+per-segment cost structure differs from one big contiguous segment.
 """
 
 import gc
@@ -16,8 +24,17 @@ from pathlib import Path
 import pymseed
 from pymseed import MS3TraceList
 
-RAW = (Path(__file__).resolve().parent.parent / "tests" / "bench.mseed").read_bytes()
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 15
+if len(sys.argv) > 2:
+    import glob as _glob
+
+    PATHS = sorted(Path(p) for p in _glob.glob(sys.argv[2]))
+    if not PATHS:
+        sys.exit(f"no files matched {sys.argv[2]!r}")
+else:
+    PATHS = [Path(__file__).resolve().parent.parent / "tests" / "bench.mseed"]
+BUFFERS = [p.read_bytes() for p in PATHS]  # read once; this measures decode
+RAW = BUFFERS[0]
 
 
 def reclist_np(raw):
@@ -49,8 +66,14 @@ if not hasattr(
 ):
     del CASES["take_np"]
 
+
+def run_case(fn):
+    """One timed round = the whole file set, so many-segment objects count."""
+    return sum(fn(b) for b in BUFFERS)
+
+
 for fn in CASES.values():  # warm up every case before timing any
-    fn(RAW)
+    run_case(fn)
     gc.collect()
 
 times = {k: [] for k in CASES}
@@ -61,11 +84,26 @@ for _ in range(REPS):
     for name in order:
         gc.collect()
         t0 = time.perf_counter()
-        CASES[name](RAW)
+        run_case(CASES[name])
         times[name].append((time.perf_counter() - t0) * 1e3)
 
-out = {"pymseed": pymseed.__version__, "reps": REPS, "cases": {}}
-print(f"pymseed {pymseed.__version__}  reps={REPS}")
+nseg = sum(
+    len(seg_list)
+    for b in BUFFERS
+    for seg_list in [[s for t in MS3TraceList.from_buffer(b) for s in t]]
+)
+out = {
+    "pymseed": pymseed.__version__,
+    "reps": REPS,
+    "files": len(BUFFERS),
+    "mb": round(sum(len(b) for b in BUFFERS) / 1e6, 1),
+    "segments": nseg,
+    "cases": {},
+}
+print(
+    f"pymseed {pymseed.__version__}  reps={REPS}  files={len(BUFFERS)} "
+    f"({out['mb']} MB, {nseg} segments)"
+)
 print(f"{'case':<14}{'min':>8}{'p25':>8}{'median':>8}")
 for k, v in times.items():
     v.sort()
