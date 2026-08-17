@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seisfetch"
-version = "0.4.0"
+version = "0.4.1"
 description = "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, and 30+ FDSN servers. Core: numpy + boto3 + pymseed. No ObsPy required."
 readme = "README.md"
 # Compound: the package is MIT except seisfetch/contrib/obspy_ports.py,
@@ -23,7 +23,13 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "boto3>=1.28",
+    # >=1.26: s3.py uses only client/Session/paginator, UNSIGNED Config and
+    # ClientError — API surface stable well below 1.28. The lower bound was
+    # relaxed for noisepy, whose noisepy-seis-io pins s3fs==2023.4.0 ->
+    # aiobotocore 2.5.2 -> botocore<1.29.162, which boto3>=1.28 excludes.
+    # Verified on boto3 1.26.161: live SCEDC/NCEDC/EarthScope pulls and the
+    # full cross-archive CCF equivalence run (bit-identical).
+    "boto3>=1.26",
     # upper bound: parse_mseed uses MS3TraceList/recordlist plus a guarded
     # private-API sid fallback; verified against 0.6-0.9.3 (parse suite +
     # private-API probe). Raise only with tests.

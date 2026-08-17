@@ -6,7 +6,8 @@
 #
 # The functions in THIS FILE are Python translations of ObsPy routines
 # (obspy.core.trace.Trace.resample/taper, obspy.signal.invsim.cosine_taper /
-# cosine_sac_taper / invert_spectrum, obspy.signal.util._npts2nfft),
+# cosine_sac_taper / invert_spectrum, obspy.signal.util._npts2nfft,
+# obspy.geodetics.base.calc_vincenty_inverse/gps2dist_azimuth),
 # preserving their exact numerical behavior including float-operation order.
 # They are therefore works based on the Library and are distributed under
 # LGPL-3.0, unlike the rest of seisfetch (MIT). See THIRD_PARTY_NOTICES.md.
@@ -28,6 +29,7 @@ __all__ = [
     "sac_cosine_taper",
     "cosine_sac_taper_np",
     "invert_spectrum_np",
+    "gps2dist_azimuth_np",
 ]
 
 
@@ -180,3 +182,176 @@ def invert_spectrum_np(h: np.ndarray, water_level_db: float) -> np.ndarray:
     h[nonzero] = 1.0 / h[nonzero]
     h[~nonzero] = 0.0
     return h
+
+
+# WGS84 ellipsoid, as obspy.geodetics.base defines it
+WGS84_A = 6378137.0
+WGS84_F = 1 / 298.257223563
+
+
+def gps2dist_azimuth_np(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+    a: float = WGS84_A,
+    f: float = WGS84_F,
+) -> tuple[float, float, float]:
+    """Port of ``obspy.geodetics.base.gps2dist_azimuth`` (Vincenty inverse).
+
+    Returns ``(distance_m, azimuth_A_to_B_deg, azimuth_B_to_A_deg)`` on the
+    WGS84 ellipsoid.
+
+    obspy calls geographiclib when it is installed and falls back to its own
+    Vincenty otherwise. This port is the Vincenty branch — the one that runs
+    in a default install — reproduced statement for statement, including its
+    iteration bound and its degenerate-case handling, so distances/azimuths
+    written into CCF metadata are unchanged.
+
+    Against an obspy that DOES have geographiclib the two disagree by ~5e-6 m
+    over ~500 km (and geographiclib spells a due-south back-azimuth 0.0 where
+    Vincenty says 360.0). Both are far below anything CCF metadata resolves,
+    but it means bit-identity holds against a default obspy install, not
+    against every obspy install. Nearly-antipodal pairs, where
+    Vincenty fails to converge, raise ValueError (obspy warns and returns
+    NaNs after falling through); noise cross-correlation pairs are never
+    antipodal in practice.
+    """
+    import math
+
+    for name, lat in (("lat1", lat1), ("lat2", lat2)):
+        if lat > 90 or lat < -90:
+            raise ValueError(f"{name} out of bounds! (-90 <= {name} <= 90)")
+
+    # obspy's _normalize_longitude: repeated +-360 subtraction, NOT a modulo.
+    # The two differ in the last ulp for some inputs, which propagates into
+    # the returned distance, so reproduce the loop exactly.
+    def _normalize_longitude(longitude):
+        while longitude > 180:
+            longitude -= 360
+        while longitude < -180:
+            longitude += 360
+        return longitude
+
+    lon1 = _normalize_longitude(lon1)
+    lon2 = _normalize_longitude(lon2)
+
+    b = a * (1 - f)  # semiminor axis
+
+    if math.isclose(lat1, lat2) and math.isclose(lon1, lon2):
+        return 0.0, 0.0, 0.0
+
+    lat1 = math.radians(lat1)
+    lon1 = math.radians(lon1)
+    lat2 = math.radians(lat2)
+    lon2 = math.radians(lon2)
+
+    tan_u1 = (1 - f) * math.tan(lat1)
+    tan_u2 = (1 - f) * math.tan(lat2)
+
+    u_1 = math.atan(tan_u1)
+    u_2 = math.atan(tan_u2)
+
+    dlon = lon2 - lon1
+    last_dlon = -4000000.0  # an impossible value
+    omega = dlon
+
+    iterlimit = 100
+    try:
+        while (
+            last_dlon < -3000000.0
+            or dlon != 0
+            and abs((last_dlon - dlon) / dlon) > 1.0e-9
+        ):
+            sqr_sin_sigma = pow(math.cos(u_2) * math.sin(dlon), 2) + pow(
+                (
+                    math.cos(u_1) * math.sin(u_2)
+                    - math.sin(u_1) * math.cos(u_2) * math.cos(dlon)
+                ),
+                2,
+            )
+            sin_sigma = math.sqrt(sqr_sin_sigma)
+            cos_sigma = math.sin(u_1) * math.sin(u_2) + math.cos(u_1) * math.cos(
+                u_2
+            ) * math.cos(dlon)
+            sigma = math.atan2(sin_sigma, cos_sigma)
+            sin_alpha = math.cos(u_1) * math.cos(u_2) * math.sin(dlon) / sin_sigma
+
+            sqr_cos_alpha = 1 - sin_alpha * sin_alpha
+            if math.isclose(sqr_cos_alpha, 0):
+                # Equatorial line
+                cos2sigma_m = 0
+            else:
+                cos2sigma_m = cos_sigma - (
+                    2 * math.sin(u_1) * math.sin(u_2) / sqr_cos_alpha
+                )
+
+            c = (f / 16) * sqr_cos_alpha * (4 + f * (4 - 3 * sqr_cos_alpha))
+            last_dlon = dlon
+            dlon = omega + (1 - c) * f * sin_alpha * (
+                sigma
+                + c
+                * sin_sigma
+                * (cos2sigma_m + c * cos_sigma * (-1 + 2 * pow(cos2sigma_m, 2)))
+            )
+
+            iterlimit -= 1
+            if iterlimit < 0:
+                raise StopIteration
+    except (ValueError, StopIteration):
+        raise ValueError(
+            "Vincenty's inverse formula did not converge (nearly antipodal points); "
+            "obspy has the same limitation."
+        )
+
+    u2 = sqr_cos_alpha * (a * a - b * b) / (b * b)
+    _a = 1 + (u2 / 16384) * (4096 + u2 * (-768 + u2 * (320 - 175 * u2)))
+    _b = (u2 / 1024) * (256 + u2 * (-128 + u2 * (74 - 47 * u2)))
+    delta_sigma = (
+        _b
+        * sin_sigma
+        * (
+            cos2sigma_m
+            + (_b / 4)
+            * (
+                cos_sigma * (-1 + 2 * pow(cos2sigma_m, 2))
+                - (_b / 6)
+                * cos2sigma_m
+                * (-3 + 4 * sqr_sin_sigma)
+                * (-3 + 4 * pow(cos2sigma_m, 2))
+            )
+        )
+    )
+
+    dist = b * _a * (sigma - delta_sigma)
+    alpha12 = math.atan2(
+        (math.cos(u_2) * math.sin(dlon)),
+        (
+            math.cos(u_1) * math.sin(u_2)
+            - math.sin(u_1) * math.cos(u_2) * math.cos(dlon)
+        ),
+    )
+    alpha21 = math.atan2(
+        (math.cos(u_1) * math.sin(dlon)),
+        (
+            -math.sin(u_1) * math.cos(u_2)
+            + math.cos(u_1) * math.sin(u_2) * math.cos(dlon)
+        ),
+    )
+
+    if alpha12 < 0.0:
+        alpha12 = alpha12 + (2.0 * math.pi)
+    if alpha12 > (2.0 * math.pi):
+        alpha12 = alpha12 - (2.0 * math.pi)
+
+    alpha21 = alpha21 + math.pi
+
+    if alpha21 < 0.0:
+        alpha21 = alpha21 + (2.0 * math.pi)
+    if alpha21 > (2.0 * math.pi):
+        alpha21 = alpha21 - (2.0 * math.pi)
+
+    alpha12 = alpha12 * 360 / (2.0 * math.pi)
+    alpha21 = alpha21 * 360 / (2.0 * math.pi)
+
+    return dist, alpha12, alpha21

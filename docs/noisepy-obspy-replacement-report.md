@@ -88,6 +88,43 @@ on the S3 path, and `num_segments` counted records. Fixes:
   guard; lazy transport imports (`import seisfetch` no longer pulls boto3);
 - CI (there was none), five small committed fixtures, 20+ new tests.
 
+## Status (2026-08-16): the migration this report recommended is implemented
+
+All three steps below are done, on branches: `seisfetch` 0.4.1,
+`noisepy-io` `feat/seisfetch-input-layer`, `NoisePy` `feat/seisfetch-data-path`.
+
+| Step | State | Evidence |
+|---|---|---|
+| (i) adopt the numpy ports behind the `rm_resp` switch | done — `noise_module.preprocess_raw_np`, dispatched in `correlate.preprocess`; the ports are IMPORTED from seisfetch, not copied, so NoisePy (MIT) stays free of the LGPL file | `NoisePy tests/test_preprocess_equivalence.py`: bit-identical to the obspy chain on both fixture sets x 40/20/1 Hz |
+| (ii) array-backed `ChannelData` with a lazy `stream` | done — new `TraceSegment`; `ChannelData.from_segments`/`from_array`; `stream` built on first access | `noisepy-io tests/test_seisfetchstore.py` |
+| (iii) demote obspy to an extra + split the input layer | done — every obspy/pyasdf import in noisepy-io and NoisePy is now lazy; new `noisepy.seis.io.seisfetchstore` (routing owned by `seisfetch.s3`, coordinates from the FDSN text service); `obspy`/`asdf` extras in both packages | `NoisePy tests/test_no_obspy.py` runs read -> preprocess -> FFT -> cross-correlate in a subprocess where importing obspy RAISES |
+
+Two gaps this report did not anticipate, both found and closed during the
+migration:
+
+- **`cc_parameters` called `obspy.geodetics.base.gps2dist_azimuth`** for every
+  station pair, writing dist/azi/baz into every saved CCF. Ported to
+  `contrib.obspy_ports.gps2dist_azimuth_np` (Vincenty inverse), exactly equal
+  to obspy on 2000 random pairs. `noise_module.taper` likewise called obspy's
+  hann entry point; it resolves to `scipy.signal.windows.hann`, now called
+  directly.
+- **Microsecond rounding.** obspy's miniSEED reader rounds sample times to whole
+  microseconds and noisepy reads `fric` off `UTCDateTime.microsecond`; pymseed
+  keeps exact nanoseconds. On a day file starting at 00:00:00.019537920 the two
+  chains differed by ~1e-8 relative — not bit-identical. `preprocess_raw_np`
+  now rounds to microseconds, and the sample-grid alignment guard applies only
+  to pre-trimmed input (`pretrimmed=False` for whole segments, which is what
+  the obspy path gets from `obspy.read`).
+
+The **two-env caveat is now retired**: `tests/test_no_obspy.py` blocks obspy at
+import time and still completes a cross-correlation, so the claim is no longer
+"the data path does not use obspy" but "the pipeline runs without it installed".
+
+One dependency consequence: `noisepy-seis-io` pins `s3fs==2023.4.0`, which
+forces `botocore<1.29.162`, so seisfetch's `boto3>=1.28` floor made the two
+uninstallable together. Relaxed to `>=1.26` in 0.4.1 (verified on boto3
+1.26.161 against live SCEDC/NCEDC/EarthScope).
+
 ## Architecture recommendation
 
 1. **seisfetch becomes the sole owner of data-center knowledge.** Today
