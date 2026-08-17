@@ -10,6 +10,57 @@ the copy), matching the record-list path; seisfetch tests pass on 0.9.4
 (already inside the >=0.6,<0.10 pin). seisfetch stays on the record-list
 path for the per-record encoding metadata. Kept here for the record.
 
+### Follow-up: pymseed 0.9.5 and `take_np_datasamples()` (2026-08-16)
+
+Chad released 0.9.5 on 2026-08-07 adding
+`MS3TraceSeg.take_np_datasamples()` — transfers the decoded buffer to numpy
+with no copy, so the array outlives the trace list without relying on the
+0.9.4 keepalive — and asked on the issue for help testing it, recommending it
+over `record_list=True` + `create_numpy_array_from_recordlist()` for the
+common read-and-get-arrays case. Issue #6 is still open on that request.
+
+Evaluated on 0.9.5 (`benchmarks/profile_parse.py`, cases `tl_unpack+view`
+and `tl_unpack+take_np`; same 11.3 MB CI.PASC.00.BHZ Steim2 channel-day,
+min of 7, native macOS arm64):
+
+| case | 0.9.4 (ms) | 0.9.5 (ms) |
+|---|---|---|
+| `record_list=True` → `create_numpy_array_from_recordlist()` | 21.0 | 21.5 |
+| `unpack_data=True` → `np_datasamples` (no copy, safe since 0.9.4) | 23.2 | 22.8 |
+| `unpack_data=True` → `take_np_datasamples()` | n/a | **22.4** |
+| `unpack_data=True` → `np_datasamples.copy()` (old idiom) | 25.0 | 26.8 |
+| `seisfetch.parse_mseed` (record-list path) | 20.9 | 21.4 |
+
+Findings:
+
+- **Correct.** `take_np_datasamples()` output is bit-identical to the
+  record-list decode on the channel-day, survives `del tracelist` + GC, and
+  is `int32` as expected. Semantics are one-shot and destructive: after
+  taking, the segment reports `numsamples == 0` and a second take returns an
+  empty array.
+- **Not faster than the record-list path here.** 22.4 ms vs 21.5 ms natively
+  — the two are within noise of each other, with the record-list path
+  marginally ahead. Chad's "huge win" framing is against the *copy* idiom and
+  the record-list *setup cost*; on this file the record-list build is only
+  ~4.5 ms and it is amortized by giving us what we need anyway.
+- **seisfetch stays on the record-list path.** Not for speed but for
+  metadata: we want the per-record encoding, which `record_list=True`
+  provides in the same pass. Reaching the same place via `take_np` would mean
+  `unpack_data=True, record_list=True` (27.8 ms — slower than either) or
+  giving up the encoding.
+- **Not yet tested under cgroup limits**, which is the tier the original
+  issue was about. Docker was unavailable for this pass; the native numbers
+  are the weakest place to judge a memory-traffic change.
+
+Release safety, checked separately: `parse_mseed` output is **bit-identical
+between 0.9.4 and 0.9.5** across every fixture (Steim2 day, float32, float64,
+int16, 3-segment gap, overlap) — sample SHA-256, npts, dtype, rate and
+integer-ns start times all equal. The full unit suite (270 passed) and the
+precision suite (53 passed) are green on 0.9.5. The noisepy equivalence
+results therefore carry over by construction: path B of both harnesses starts
+from `parse_mseed`, whose output does not change. The `>=0.6,<0.10` pin
+stands.
+
 ---
 
 ## Title
