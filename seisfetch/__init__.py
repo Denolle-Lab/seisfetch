@@ -74,15 +74,22 @@ def __dir__():
 
 
 # Earth2Studio adapters — lazy import (requires earth2studio + xarray)
+_EARTH2_EXPORTS = [
+    "SeismicDataSource",
+    "SeismicDataFrameSource",
+    "SeisfetchLiveSource",
+    "bundle_to_earth2",
+]
 try:
-    from seisfetch.earth2 import (
+    # re-exported via the dynamic __all__ below, which ruff cannot follow
+    from seisfetch.earth2 import (  # noqa: F401
         SeisfetchLiveSource,
         SeismicDataFrameSource,
         SeismicDataSource,
         bundle_to_earth2,
     )
 except ImportError:  # earth2studio / xarray not installed
-    pass
+    _EARTH2_EXPORTS = []
 
 try:
     from importlib.metadata import version as _pkg_version
@@ -119,8 +126,8 @@ __all__ = [
     "fetch_bulk_numpy",
     "requests_from_list",
     "requests_from_csv",
-    "SeismicDataSource",
-    "SeismicDataFrameSource",
-    "SeisfetchLiveSource",
-    "bundle_to_earth2",
 ]
+# Earth2Studio adapter names only when the optional import succeeded: they are
+# bound eagerly above, and a name in __all__ that is not resolvable makes
+# `from seisfetch import *` raise AttributeError on a minimal install.
+__all__ += _EARTH2_EXPORTS

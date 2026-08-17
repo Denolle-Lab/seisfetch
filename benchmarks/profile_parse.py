@@ -109,7 +109,18 @@ def case_tracelist_take_np(raw):
     copy, so the array outlives the trace list without the 0.9.4 keepalive
     pinning it.  EarthScope/pymseed#6.
     """
+    import pymseed
     from pymseed import MS3TraceList
+    from pymseed.mstracelist import MS3TraceSeg
+
+    # run_table catches per-case exceptions, but run_rss does not — so
+    # `--rss tl_unpack+take_np` on an older pymseed would otherwise print an
+    # unexplained AttributeError instead of the version reason.
+    if not hasattr(MS3TraceSeg, "take_np_datasamples"):
+        raise RuntimeError(
+            f"take_np_datasamples() requires pymseed >= 0.9.5 "
+            f"(installed: {pymseed.__version__})"
+        )
 
     tl = MS3TraceList.from_buffer(raw, unpack_data=True)
     n = 0
