@@ -4,7 +4,59 @@ All notable changes to seisfetch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.4.1 — unreleased
+
+The release NoisePy's obspy-free data path depends on: it makes seisfetch
+installable alongside noisepy's pinned S3 stack, and closes the last two gaps
+between the numpy pre-processing chain and noisepy's obspy one.
+
+### Added
+
+- `contrib.obspy_ports.gps2dist_azimuth_np`: port of
+  `obspy.geodetics.base.gps2dist_azimuth` (the Vincenty-inverse branch, the
+  one that runs in a default install). noisepy's `cc_parameters` writes
+  dist/azi/baz into every saved cross-correlation, so this was the last
+  obspy call on the cross-correlation path. Exactly equal to obspy on 2000
+  random coordinate pairs plus station-like, equatorial, identical-point and
+  longitude-wrapping cases.
+
+### Fixed
+
+- `contrib.noisepy_adapter.preprocess_raw_np` now rounds segment start times
+  to whole microseconds, as obspy's miniSEED reader does. pymseed keeps exact
+  nanoseconds; noisepy derives its sub-sample correction from
+  `UTCDateTime.microsecond`, so on a day file starting at
+  00:00:00.019537920 the two chains computed `nfric` 1.6e-6 apart and the
+  output differed by ~1e-8 relative — small, but not bit-identical, and
+  bit-identity is the contract.
+- The `gps2dist_azimuth_np` equivalence tests asserted exact equality against
+  whichever branch obspy happened to take, so they failed on any machine with
+  `geographiclib` installed — obspy delegates to it when present and only
+  falls back to its own Vincenty otherwise. The exact-equality tests now skip
+  when `HAS_GEOGRAPHICLIB`, and a tolerance test runs either way so coverage
+  is not silently lost. The two branches differ by ~5e-6 m over ~500 km, and
+  geographiclib spells a due-south back-azimuth `0.0` where Vincenty says
+  `360.0`; both are far below what CCF metadata resolves, but it means
+  bit-identity holds against a default obspy install rather than every one.
+- `preprocess_raw_np(..., pretrimmed=False)` skips the sample-grid alignment
+  guard. The guard exists for callers that pre-trim segments with
+  `TraceBundle.trim` (inside-window) before pre-processing; a caller that
+  passes whole segments — exactly what `obspy.read` hands noisepy — is
+  trimmed only by `trim_pad0_np` at the end of the chain, which IS obspy's
+  nearest-sample trim, so unaligned windows are handled identically. NoisePy
+  asserts bit-identity on a window 0.218 samples off the grid.
+
+### Changed
+
+- `boto3` lower bound relaxed to `>=1.26` (was `>=1.28`). NoisePy cannot
+  install seisfetch otherwise: `noisepy-seis-io` pins `s3fs==2023.4.0`,
+  which forces `aiobotocore 2.5.2` and `botocore<1.29.162`, a range
+  `boto3>=1.28` excludes. `seisfetch/s3.py` uses only `boto3.client`,
+  `boto3.Session`, list-objects paginators, `botocore.UNSIGNED` and
+  `ClientError` — all long-stable. Verified on boto3 1.26.161: live
+  SCEDC/NCEDC/EarthScope day-file pulls and the full precision suite
+  (56 passed, including both NoisePy CCF equivalence harnesses,
+  bit-identical).
 
 ## 0.4.0 — 2026-08-16
 

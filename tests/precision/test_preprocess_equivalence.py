@@ -17,6 +17,7 @@ import pytest
 
 obspy = pytest.importorskip("obspy")
 import scipy.signal  # noqa: E402
+from obspy.geodetics.base import HAS_GEOGRAPHICLIB  # noqa: E402
 from obspy.signal.filter import bandpass  # noqa: E402
 
 from seisfetch.contrib.noisepy_adapter import (  # noqa: E402
@@ -250,3 +251,98 @@ class TestFullChain:
             ref.stats.starttime.timestamp, abs=1e-6
         )
         np.testing.assert_array_equal(got.data, ref.data)
+
+
+class TestGps2DistAzimuth:
+    """The CCF metadata path: every station pair's dist/azi/baz.
+
+    noisepy writes these into every saved cross-correlation, so the port has
+    to be EXACTLY equal to obspy's, not merely close.
+    """
+
+    @pytest.mark.skipif(
+        HAS_GEOGRAPHICLIB,
+        reason="obspy delegates to geographiclib when it is installed; this "
+        "port reproduces obspy's own Vincenty branch, which is what a "
+        "default obspy install runs. Tolerance coverage for the "
+        "geographiclib case is in test_agrees_with_obspy_either_branch.",
+    )
+    def test_matches_obspy_exactly_on_random_pairs(self):
+        import random
+
+        from obspy.geodetics.base import gps2dist_azimuth
+
+        from seisfetch.contrib.obspy_ports import gps2dist_azimuth_np
+
+        random.seed(20260816)
+        checked = 0
+        for _ in range(2000):
+            lat1, lon1 = random.uniform(-90, 90), random.uniform(-360, 360)
+            lat2, lon2 = random.uniform(-90, 90), random.uniform(-360, 360)
+            try:
+                ref = gps2dist_azimuth(lat1, lon1, lat2, lon2)
+            except Exception:
+                continue  # antipodal non-convergence; noisepy pairs never hit this
+            assert gps2dist_azimuth_np(lat1, lon1, lat2, lon2) == ref
+            checked += 1
+        assert checked > 1900
+
+    def test_agrees_with_obspy_either_branch(self):
+        """Runs whichever branch obspy takes, so CI cannot silently lose cover.
+
+        Vincenty and geographiclib disagree by ~1e-5 m over ~500 km — five
+        microns, against CCF metadata whose consumers round to metres. Exact
+        equality is still the bar for the default (Vincenty) install; this is
+        the floor that must hold either way.
+        """
+        from obspy.geodetics.base import gps2dist_azimuth
+
+        from seisfetch.contrib.obspy_ports import gps2dist_azimuth_np
+
+        for lat1, lon1, lat2, lon2 in [
+            (34.1, -118.1, 37.9, -122.3),
+            (33.61, -116.46, 35.82, -120.34),
+            (0.0, 0.0, 0.0, 10.0),
+            (10.0, 190.0, -10.0, -170.0),
+        ]:
+            got = gps2dist_azimuth_np(lat1, lon1, lat2, lon2)
+            ref = gps2dist_azimuth(lat1, lon1, lat2, lon2)
+            assert got[0] == pytest.approx(ref[0], abs=1e-3)  # metres
+            # modulo 360: on a due-south, same-meridian pair obspy's Vincenty
+            # reports back-azimuth 360.0 where geographiclib reports 0.0. The
+            # port inherits Vincenty's spelling because it reproduces that
+            # branch statement for statement.
+            for g, r in zip(got[1:], ref[1:]):
+                assert (g - r + 180) % 360 - 180 == pytest.approx(0.0, abs=1e-6)
+
+    @pytest.mark.skipif(
+        HAS_GEOGRAPHICLIB,
+        reason="obspy delegates to geographiclib when installed; see "
+        "test_agrees_with_obspy_either_branch",
+    )
+    def test_matches_obspy_on_station_pairs_and_degenerate_cases(self):
+        from obspy.geodetics.base import gps2dist_azimuth
+
+        from seisfetch.contrib.obspy_ports import gps2dist_azimuth_np
+
+        pairs = [
+            (34.1, -118.1, 37.9, -122.3),  # PASC - PKD class
+            (33.61, -116.46, 35.82, -120.34),  # PFO - PKD class
+            (34.0, -118.0, 34.0, -118.0),  # identical points -> (0, 0, 0)
+            (0.0, 0.0, 0.0, 10.0),  # equatorial line (cos2sigma_m branch)
+            (10.0, 190.0, -10.0, -170.0),  # longitudes needing normalization
+        ]
+        for lat1, lon1, lat2, lon2 in pairs:
+            assert gps2dist_azimuth_np(lat1, lon1, lat2, lon2) == gps2dist_azimuth(
+                lat1, lon1, lat2, lon2
+            )
+
+    def test_latitude_out_of_bounds_raises(self):
+        import pytest
+
+        from seisfetch.contrib.obspy_ports import gps2dist_azimuth_np
+
+        with pytest.raises(ValueError, match="lat1"):
+            gps2dist_azimuth_np(91.0, 0.0, 0.0, 0.0)
+        with pytest.raises(ValueError, match="lat2"):
+            gps2dist_azimuth_np(0.0, 0.0, -91.0, 0.0)

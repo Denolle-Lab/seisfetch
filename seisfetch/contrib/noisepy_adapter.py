@@ -246,6 +246,7 @@ def preprocess_raw_np(
     freqmin: float,
     freqmax: float,
     sampling_rate: float,
+    pretrimmed: bool = True,
 ) -> NpChannelData:
     """The full ``preprocess_raw`` chain at ``rm_resp=NO``, obspy-free.
 
@@ -262,24 +263,30 @@ def preprocess_raw_np(
         return NpChannelData.empty()
     sps = int(segments[0].sampling_rate)
 
-    # Runtime guard (2026-08 critique): this chain assumes the requested
-    # window is aligned to the data's sample grid (true for archive day
-    # files starting on integer seconds). A sub-sample offset makes
-    # TraceBundle.trim (inside-window) and obspy trim (nearest-sample)
-    # remove different samples BEFORE detrend/taper/filter, and the outputs
-    # diverge completely — so refuse instead of silently diverging.
-    dt_ns = 1e9 / segments[0].sampling_rate
-    for label, t_ns in (("start", start_ns), ("end", end_ns)):
-        off = (t_ns - segments[0].starttime_ns) % dt_ns
-        frac = min(off, dt_ns - off) / dt_ns
-        if frac > 1e-3:
-            raise ValueError(
-                f"window {label} is {frac:.3f} samples off the data grid; "
-                "preprocess_raw_np requires sample-aligned windows (obspy's "
-                "chain would trim nearest-sample here and the two paths "
-                "diverge). Align the window to the sample grid, or use the "
-                "obspy preprocessing path for sub-sample windows."
-            )
+    # Runtime guard (2026-08 critique). It applies only to PRE-TRIMMED input:
+    # if the caller already cut the segments to the window with
+    # TraceBundle.trim (inside-window), a sub-sample offset removes different
+    # samples than obspy's nearest-sample trim would, BEFORE detrend/taper/
+    # filter, and the outputs diverge. Refuse rather than diverge silently.
+    #
+    # With pretrimmed=False the caller passes whole segments, exactly what
+    # obspy.read hands noisepy, and the only trim is trim_pad0_np at the end
+    # of this chain — which IS obspy's nearest-sample trim. Unaligned windows
+    # are then fine, and noisepy's own test suite asserts bit-identity on a
+    # window 0.218 samples off the grid.
+    if pretrimmed:
+        dt_ns = 1e9 / segments[0].sampling_rate
+        for label, t_ns in (("start", start_ns), ("end", end_ns)):
+            off = (t_ns - segments[0].starttime_ns) % dt_ns
+            frac = min(off, dt_ns - off) / dt_ns
+            if frac > 1e-3:
+                raise ValueError(
+                    f"window {label} is {frac:.3f} samples off the data grid; "
+                    "pre-trimmed input requires sample-aligned windows (obspy's "
+                    "chain would trim nearest-sample here and the two paths "
+                    "diverge). Pass whole segments with pretrimmed=False, align "
+                    "the window to the sample grid, or use the obspy path."
+                )
 
     # pre_filt corners as noise_module.py:118-126 builds them; noisepy makes
     # [f1, f2, f3, f4] but only f1/f4 reach bandpass on the rm_resp=NO path
@@ -309,6 +316,13 @@ def preprocess_raw_np(
         )
 
     merged, t0_ns = merge_fill0_np(cleaned)
+    # obspy's miniSEED reader rounds sample times to whole microseconds, and
+    # noisepy derives the sub-sample correction below from
+    # UTCDateTime.microsecond. pymseed keeps exact nanoseconds, so round here
+    # to carry the same start time obspy would: an 80 ns difference shifts
+    # nfric by ~1.6e-6 and the interpolated output by ~1e-8 relative, which
+    # is small but NOT bit-identical, and bit-identity is the contract.
+    t0_ns = int(round(t0_ns / 1000.0)) * 1000
     merged = taper_np(merged, sps, max_percentage=0.05, max_length=50)
     merged = np.float32(bandpass_np(merged, f1, f4, df=sps, corners=4, zerophase=True))
 
@@ -319,7 +333,7 @@ def preprocess_raw_np(
         # sub-sample start alignment — noisepy runs this only inside the
         # resample branch (noise_module.py:158-167), so we do too
         delta = 1.0 / sr
-        micro = (t0_ns % 1_000_000_000) / 1000.0
+        micro = (t0_ns % 1_000_000_000) / 1000.0  # whole microseconds, see above
         fric = micro % (delta * 1e6)
         if fric > 1e-4:
             merged = segment_interpolate_np(
