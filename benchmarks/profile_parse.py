@@ -89,6 +89,48 @@ def case_tracelist_unpack_copy(raw):
     return n
 
 
+def case_tracelist_unpack_view(raw):
+    """unpack in C, then the no-copy view (safe since pymseed 0.9.4)."""
+    from pymseed import MS3TraceList
+
+    tl = MS3TraceList.from_buffer(raw, unpack_data=True)
+    n = 0
+    for tid in tl:
+        for seg in tid:
+            arr = seg.np_datasamples
+            n += arr.shape[0]
+    return n
+
+
+def case_tracelist_take_np(raw):
+    """unpack in C, then take ownership of the buffer (pymseed >= 0.9.5).
+
+    ``take_np_datasamples()`` transfers the decoded buffer to numpy with no
+    copy, so the array outlives the trace list without the 0.9.4 keepalive
+    pinning it.  EarthScope/pymseed#6.
+    """
+    import pymseed
+    from pymseed import MS3TraceList
+    from pymseed.mstracelist import MS3TraceSeg
+
+    # run_table catches per-case exceptions, but run_rss does not — so
+    # `--rss tl_unpack+take_np` on an older pymseed would otherwise print an
+    # unexplained AttributeError instead of the version reason.
+    if not hasattr(MS3TraceSeg, "take_np_datasamples"):
+        raise RuntimeError(
+            f"take_np_datasamples() requires pymseed >= 0.9.5 "
+            f"(installed: {pymseed.__version__})"
+        )
+
+    tl = MS3TraceList.from_buffer(raw, unpack_data=True)
+    n = 0
+    for tid in tl:
+        for seg in tid:
+            arr = seg.take_np_datasamples()
+            n += arr.shape[0]
+    return n
+
+
 def case_parse_mseed(raw):
     from seisfetch.convert import parse_mseed
 
@@ -149,6 +191,8 @@ CASES = {
     "tl_reclist_only": case_tracelist_reclist_only,
     "tl_reclist->np": case_tracelist_reclist_np,
     "tl_unpack+copy": case_tracelist_unpack_copy,
+    "tl_unpack+view": case_tracelist_unpack_view,
+    "tl_unpack+take_np": case_tracelist_take_np,
     "parse_mseed": case_parse_mseed,
     "parse_mseed_flags": case_parse_mseed_flags,
     "parse_records_fb": case_parse_records_fallback,

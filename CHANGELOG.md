@@ -6,6 +6,12 @@ All notable changes to seisfetch are documented here. The format follows
 
 ## Unreleased
 
+## 0.4.0 — 2026-08-16
+
+Four-archive release: GeoNet joins SCEDC, NCEDC and EarthScope, and the
+Earth2Studio integration becomes a live, time-indexed source that fetches on
+demand and always returns physical units (PR #5).
+
 ### Added
 
 - **GeoNet (New Zealand)** open-data S3 archive: `geonet-open-data`

@@ -1,6 +1,6 @@
 # seisfetch
 
-Cloud-first seismic waveform access for EarthScope, SCEDC, NCEDC, and fallback FDSN services.
+Cloud-first seismic waveform access for EarthScope, SCEDC, NCEDC, GeoNet, and fallback FDSN services.
 
 `seisfetch` is built around one core path:
 
@@ -24,7 +24,7 @@ The design goal is simple:
 
 The intended acquisition order is:
 
-1. `s3_open` for SCEDC and NCEDC open buckets
+1. `s3_open` for SCEDC, NCEDC and GeoNet open buckets
 2. `s3_auth` for EarthScope S3 access
 3. `fdsn` only when the archive-backed path is unavailable or the network is not served from those buckets
 
@@ -34,7 +34,8 @@ At the package level, the main interfaces are:
 - `SeisfetchClient.get_numpy()` -> `TraceBundle` of numpy arrays
 - `SeisfetchClient.get_xarray()` -> `xarray.Dataset`
 - `SeisfetchClient.get_waveforms()` -> ObsPy `Stream`
-- `SeismicDataFrameSource` / `SeismicDataSource` -> Earth2Studio-compatible adapters
+- `SeismicDataFrameSource` / `SeismicDataSource` -> Earth2Studio adapters over data you already fetched
+- `SeisfetchLiveSource` -> time-indexed Earth2Studio `DataSource` that fetches on demand
 
 ## Workflow
 
@@ -46,7 +47,10 @@ At the package level, the main interfaces are:
 |---|---|---|
 | `CI`, other SCEDC-routed networks | SCEDC open S3 | `s3_open` |
 | `BK`, other NCEDC-routed networks | NCEDC open S3 | `s3_open` |
+| `NZ` | GeoNet open S3 | `s3_open` |
 | `IU`, `UW`, `TA`, other EarthScope-routed networks | EarthScope S3 | `s3_auth` |
+
+Networks served by both SCEDC and NCEDC (`NC`, `NP`, ...) route to NCEDC.
 
 Archive details:
 
@@ -54,18 +58,20 @@ Archive details:
 |---|---|---|---|
 | EarthScope | `earthscope-geophysical-data` | `us-east-2` | EarthScope SDK credentials |
 | SCEDC | `scedc-pds` | `us-west-2` | none |
-| NCEDC | `ncedc-pds` | `us-east-2` | none |
+| NCEDC | `ncedc-pds` | `us-west-2` | none |
+| GeoNet | `geonet-open-data` | `ap-southeast-2` | none |
 
 Notes:
 
-- SCEDC and NCEDC are per-channel archives, so you should pass `channel=...`.
+- SCEDC, NCEDC and GeoNet are per-channel archives, so you should pass `channel=...`.
+- GeoNet channels always carry a numeric location code (`10`, `20`, ...), so `location=` is required there — a blank location raises rather than silently missing data.
 - EarthScope stores station-day miniSEED objects and currently requires authenticated access through `earthscope-sdk`.
 
 ### 2. FDSN second
 
 Use `backend="fdsn"` when:
 
-- the desired network is not available from EarthScope / SCEDC / NCEDC S3
+- the desired network is not available from EarthScope / SCEDC / NCEDC / GeoNet S3
 - the archive-backed attempt fails and you want a fallback provider
 - you need a non-US provider such as GEOFON, INGV, ETH, ORFEUS, etc.
 
@@ -113,6 +119,88 @@ That makes it useful for:
 - Earth2Studio interoperability
 - data assimilation and digital twin workflows
 
+## ObsPy-Free, and What That Buys
+
+ObsPy is an optional extra here, not a dependency of the data path. The
+evaluation behind that choice — including whether it changes the science — is
+written up in
+[docs/noisepy-obspy-replacement-report.md](docs/noisepy-obspy-replacement-report.md),
+with every number traceable to a committed JSON under `benchmarks/results/` or
+a test in `tests/precision/`.
+
+| | seisfetch | obspy stack |
+|---|---|---|
+| Parse an 11 MB Steim2 channel-day | 21.4 ms | 37.2 ms |
+| Cold `import` | 0.08 s | 0.13 s |
+| Parse peak memory | 27.7 MB | 52.0 MB |
+| Installed footprint | 80.4 MB | 311.4 MB |
+| arm64 Linux install | wheels | needs gcc |
+
+The footprint line is the cloud argument: AWS Lambda caps a layer at 250 MB,
+so the ObsPy stack does not fit and seisfetch does. ObsPy publishes no
+linux/aarch64 wheels, so on Graviton it compiles from source; seisfetch and
+pymseed install from wheels.
+
+### The science does not change
+
+Identical archive bytes were pushed through (A) `obspy.read` plus NoisePy's own
+`preprocess_raw` and (B) seisfetch's parser plus the numpy/scipy ports in
+`seisfetch.contrib.noisepy_adapter`, then through NoisePy's own `compute_fft`
+and `correlate`. The pass criterion is bit-identity, not closeness:
+
+| Harness | Result |
+|---|---|
+| Single-station CI.PASC, EN/EZ/NZ/ZZ at 40 sps | max abs diff `0.0` |
+| Cross-station SCEDC x NCEDC x EarthScope at 20 sps | max abs diff `0.0` |
+| dv/v stretching | same grid cell on all pairs |
+
+The cross-station run matters because it exercises the Fourier-resample and
+sub-sample-alignment branches inside the chain. Tables, plots and the
+harnesses: [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
+
+Scope note: this bit-identity result covers the preprocessing chain at
+`rm_resp=NO`. Response removal is validated separately, below.
+
+### Response removal without evalresp
+
+Response removal was the one ObsPy capability the NoisePy migration still
+needed. `seisfetch.contrib.response` provides it in ~577 lines of numpy and
+stdlib `xml.etree` — no evalresp C library, no ObsPy, no lxml, and no scipy in
+that module. ObsPy has no pure-Python response evaluator (`remove_response`
+calls compiled evalresp), so every stage was re-derived and then checked
+against the compiled implementation:
+
+| Check | Result |
+|---|---|
+| `evaluate_response(mode="full")` vs compiled evalresp — both CI.PASC epochs, VEL/ACC/DISP, 1 mHz–19.9 Hz | max rel diff `1.6e-10` |
+| `remove_response_np` vs `Trace.remove_response` — real 6.9M-sample Tohoku day, water_level=60, pre_filt | `6.6e-16` of peak |
+| Same, CI.PASC demo hour in notebook 06 | `7.6e-16` of peak |
+| Deconvolve that Tohoku day | 1.9 s vs ObsPy 3.6 s |
+
+Two evaluation modes: `mode="full"` is evalresp-equivalent (all stages, analog
+and digital poles/zeros, FIR/Coefficients with DC normalization and the
+`Decimation/CorrectionApplied` phase advance). `mode="paz"` is the SACPZ
+shortcut — 0.7–1.3 % error below 4 Hz but ~23 % by 16 Hz, since the FIR
+anti-alias roll-off is unmodeled; don't use it above ~Nyquist/3.
+
+Two deconvolution styles: `remove_response_np` ports ObsPy's water-level
+method for drop-in equivalence, and `translate_resp_np` follows SeisIO.jl's
+translation approach, taking stabilization from the target response's own
+roll-off instead of a water level.
+
+Defective metadata fails loudly — zero or missing gains, degenerate
+normalization references, zero-sum FIR stages, polynomial and `ResponseList`
+stages all raise with the stage number named, never a silent NaN or unity
+gain. Not implemented, and raising rather than approximating: IIR
+`Coefficients` stages with denominators, polynomial (blockette-62) responses,
+`ResponseList` stages. Metadata is StationXML only; RESP and SACPZ files are
+not parsed.
+
+Full derivation, the conditional-A0 finding about evalresp's normalization
+rule, and the SeisIO comparison:
+[docs/response-removal-design.md](docs/response-removal-design.md). Tutorial:
+[notebooks/05_response_removal.ipynb](notebooks/05_response_removal.ipynb).
+
 ## Quick Start
 
 ### Open S3: SCEDC / NCEDC
@@ -132,6 +220,22 @@ bundle = client.get_numpy(
 
 print(bundle.ids)
 arrays = bundle.to_dict()
+```
+
+### Open S3: GeoNet (New Zealand)
+
+`NZ` auto-routes to the GeoNet open-data bucket. GeoNet channels carry a
+numeric location code, so pass `location=`:
+
+```python
+bundle = SeisfetchClient(backend="s3_open").get_numpy(
+    "NZ",
+    "WEL",
+    location="10",
+    channel="HHZ",
+    starttime="2022-01-02T00:00:00",
+    endtime="2022-01-02T00:10:00",
+)
 ```
 
 ### EarthScope S3 (authenticated)
@@ -421,6 +525,7 @@ SeisfetchClient
 +- backend="s3_open"
 |  +- SCEDC open bucket
 |  +- NCEDC open bucket
+|  +- GeoNet open bucket
 |  +- auto-routing by network code
 |
 +- backend="s3_auth"
@@ -438,8 +543,9 @@ SeisfetchClient
 
 The package includes adapters in `seisfetch.earth2` for Earth2Studio-style usage:
 
-- `SeismicDataSource`
-- `SeismicDataFrameSource`
+- `SeismicDataSource` — wraps a bundle you already fetched
+- `SeismicDataFrameSource` — sparse sensor table; `auto_coords=True` fills station lat/lon from the FDSN station service
+- `SeisfetchLiveSource` — time-indexed `DataSource` that fetches on demand
 - `bundle_to_earth2`
 
 These are intended for:
@@ -454,6 +560,42 @@ Typical path:
 ```text
 miniSEED -> numpy -> xarray / sparse dataframe -> Earth2Studio adapter
 ```
+
+### Live source
+
+`SeisfetchLiveSource` has the shape every other Earth2Studio source (GFS,
+ERA5, ...) has: you call it with timestamps and it fetches, auto-routing per
+network across all four archives and caching day bundles in memory.
+
+```python
+from datetime import datetime
+from seisfetch.earth2 import SeisfetchLiveSource
+
+source = SeisfetchLiveSource(
+    channels=["CI.PASC..BHZ", "BK.PKD.00.BHZ", "II.PFO.00.BHZ"],
+    window_s=3600,
+    calibrate="gain",
+)
+da = source(datetime(2022, 1, 2, 6))   # -> (time, variable, sample) DataArray
+```
+
+Channels are `NET.STA.LOC.CHA` strings; the returned `variable` coordinate
+spells them with underscores (`CI_PASC__BHZ`), which is also what the
+optional `variable=` argument accepts. All channels in one call must share a
+sampling rate — request mixed rates (a 40 sps `BHZ` alongside a 100 sps
+`HHZ`) in separate calls.
+
+Physical units are **required** — this source never returns raw counts:
+
+- `calibrate="gain"` (default): divide by the channel's total sensitivity from
+  the FDSN station service. Exact at the reference frequency, one metadata
+  request per channel, no extra dependencies.
+- `calibrate="response"`: full spectral deconvolution through
+  `seisfetch.contrib.response` (StationXML fetch plus an evalresp-equivalent
+  evaluator). Agrees with ObsPy to 7.6e-16 of peak amplitude on real data.
+
+`fetch()` is genuinely async (`asyncio.to_thread`), so pipelines can overlap
+this source with others.
 
 ## Recipes
 
@@ -565,6 +707,8 @@ See [notebooks/](notebooks/) for worked examples:
 - [02_bulk_mining.ipynb](notebooks/02_bulk_mining.ipynb)
 - [03_xarray_zarr_pipeline.ipynb](notebooks/03_xarray_zarr_pipeline.ipynb)
 - [04_earth2studio_interop.ipynb](notebooks/04_earth2studio_interop.ipynb)
+- [05_response_removal.ipynb](notebooks/05_response_removal.ipynb) — instrument response removal without ObsPy
+- [06_cross_correlation_three_archives.ipynb](notebooks/06_cross_correlation_three_archives.ipynb) — four stations, three archives, two months of NoisePy cross-correlations
 
 Notebook setup instructions are in [notebooks/README.md](notebooks/README.md).
 
@@ -604,6 +748,7 @@ When using data accessed through `seisfetch`:
 - EarthScope: cite the network operators and NSF SAGE facility
 - SCEDC: doi:[10.7909/C3WD3xH1](https://doi.org/10.7909/C3WD3xH1)
 - NCEDC: doi:[10.7932/NCEDC](https://doi.org/10.7932/NCEDC)
+- GeoNet: GNS Science, [GeoNet open data](https://www.geonet.org.nz/data/supplementary/channels) (CC BY 4.0) — cite per GeoNet's data policy
 - other FDSN providers: cite the underlying network/provider
 
 Software references:

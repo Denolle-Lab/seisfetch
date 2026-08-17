@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seisfetch"
-version = "0.3.1"
+version = "0.4.0"
 description = "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, and 30+ FDSN servers. Core: numpy + boto3 + pymseed. No ObsPy required."
 readme = "README.md"
 # Compound: the package is MIT except seisfetch/contrib/obspy_ports.py,
