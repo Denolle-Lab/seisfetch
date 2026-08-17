@@ -4,7 +4,7 @@ All notable changes to seisfetch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org).
 
-## 0.4.1 — unreleased
+## 0.4.1 — 2026-08-17
 
 The release NoisePy's obspy-free data path depends on: it makes seisfetch
 installable alongside noisepy's pinned S3 stack, and closes the last two gaps
@@ -16,9 +16,10 @@ between the numpy pre-processing chain and noisepy's obspy one.
   `obspy.geodetics.base.gps2dist_azimuth` (the Vincenty-inverse branch, the
   one that runs in a default install). noisepy's `cc_parameters` writes
   dist/azi/baz into every saved cross-correlation, so this was the last
-  obspy call on the cross-correlation path. Exactly equal to obspy on 2000
-  random coordinate pairs plus station-like, equatorial, identical-point and
-  longitude-wrapping cases.
+  obspy call on the cross-correlation path. Exactly equal to obspy's own
+  Vincenty on 2000 random coordinate pairs plus station-like, equatorial,
+  identical-point and longitude-wrapping cases; see the geographiclib note
+  under Fixed for the one install where "exactly" becomes "to ~5e-6 m".
 
 ### Fixed
 
