@@ -42,15 +42,46 @@ Findings:
   — the two are within noise of each other, with the record-list path
   marginally ahead. Chad's "huge win" framing is against the *copy* idiom and
   the record-list *setup cost*; on this file the record-list build is only
-  ~4.5 ms and it is amortized by giving us what we need anyway.
+  ~4.5 ms and it is amortized by giving us what we need anyway. The container
+  tiers below widen this gap rather than closing it.
 - **seisfetch stays on the record-list path.** Not for speed but for
   metadata: we want the per-record encoding, which `record_list=True`
   provides in the same pass. Reaching the same place via `take_np` would mean
   `unpack_data=True, record_list=True` (27.8 ms — slower than either) or
   giving up the encoding.
-- **Not yet tested under cgroup limits**, which is the tier the original
-  issue was about. Docker was unavailable for this pass; the native numbers
-  are the weakest place to judge a memory-traffic change.
+Under cgroup limits (`benchmarks/ab_pymseed_paths.py`, the four cases
+interleaved in shuffled order, 2 containers x 15 reps per version per tier,
+same channel-day; Docker Desktop linux/arm64 on M1). Minimum ms — medians are
+2-3x higher at the Lambda tier from CPU-quota throttling and are reported in
+the script output:
+
+| case | fargate 2cpu/4g, 0.9.4 | 0.9.5 | lambda 0.5cpu/512m, 0.9.4 | 0.9.5 |
+|---|---|---|---|---|
+| `record_list` → `create_numpy_array_from_recordlist()` | **21.7** | **21.6** | **21.5** | **21.2** |
+| `unpack_data=True` → `np_datasamples` (safe view) | 28.1 | 27.7 | 28.1 | 28.3 |
+| `unpack_data=True` → `take_np_datasamples()` | n/a | 27.6 | n/a | 28.6 |
+| `unpack_data=True` → `np_datasamples.copy()` | 35.0 | 35.2 | 36.4 | 47.6 |
+
+This sharpens the native result rather than overturning it:
+
+- **`take_np_datasamples()` is indistinguishable from the plain 0.9.4 safe
+  view** — 27.6 vs 27.7 ms at the Fargate tier, 28.6 vs 28.3 at Lambda.
+  Expected in hindsight: since the 0.9.4 keepalive the view is already
+  zero-copy, so `take_np` changes *ownership*, not data movement. Its value
+  is lifetime semantics — the array no longer pins the trace list, so the
+  rest of that memory can be released earlier — not throughput.
+- **The record-list path is the fastest in every tier**, and by a wider
+  margin than native: ~6-7 ms (about 25 %) ahead of both unpack-then-take
+  paths at both tiers, where natively it led by ~1 ms.
+- The copy idiom remains the worst path and is the only one that degrades
+  with tighter limits, reproducing the original issue's finding.
+
+Caveats on these numbers: one file with a single trace/segment, so the
+record-list advantage may not generalize to many-segment or many-channel
+objects; and Docker Desktop on macOS runs a Linux VM, so this is
+cgroup-in-VM rather than bare Linux — the same property the original issue's
+measurements had, which makes them comparable to each other but not a
+substitute for real Fargate/Lambda.
 
 Release safety, checked separately: `parse_mseed` output is **bit-identical
 between 0.9.4 and 0.9.5** across every fixture (Steim2 day, float32, float64,
