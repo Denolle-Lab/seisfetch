@@ -24,8 +24,10 @@ The design goal is simple:
 
 The intended acquisition order is:
 
-1. `s3_open` for SCEDC, NCEDC and GeoNet open buckets
-2. `s3_auth` for EarthScope S3 access
+1. `s3_open` for the anonymous archives: SCEDC, NCEDC, GeoNet, and the
+   EarthScope Open Data networks (`AK`, `II`, `IU`, `N4`, `PB`, `TA`, `UU`, `UW`)
+2. `s3_auth` for every other EarthScope network, which sits behind a
+   credentialed access point (it still reads the Open Data networks anonymously)
 3. `fdsn` only when the archive-backed path is unavailable or the network is not served from those buckets
 
 At the package level, the main interfaces are:
@@ -48,15 +50,21 @@ At the package level, the main interfaces are:
 | `CI`, other SCEDC-routed networks | SCEDC open S3 | `s3_open` |
 | `BK`, other NCEDC-routed networks | NCEDC open S3 | `s3_open` |
 | `NZ` | GeoNet open S3 | `s3_open` |
-| `IU`, `UW`, `TA`, other EarthScope-routed networks | EarthScope S3 | `s3_auth` |
+| `AK`, `II`, `IU`, `N4`, `TA`, `UU`, `UW` (EarthScope Open Data) | EarthScope open S3 | `s3_open` |
+| every other EarthScope-routed network (`US`, `CC`, temporary codes, ...) | EarthScope restricted S3 | `s3_auth` |
 
-Networks served by both SCEDC and NCEDC (`NC`, `NP`, ...) route to NCEDC.
+Networks served by both SCEDC and NCEDC (`NC`, `NP`, `PB`, ...) route to NCEDC;
+`PB` is also on EarthScope Open Data and can be read there with
+`datacenter="earthscope"`. `is_earthscope_open(net)` and `earthscope_tier(net)`
+report which EarthScope tier a network is on, and so does
+`seisfetch info --route NET`.
 
 Archive details:
 
 | Archive | Bucket | Region | Auth |
 |---|---|---|---|
-| EarthScope | `earthscope-geophysical-data` | `us-east-2` | EarthScope SDK credentials |
+| EarthScope Open Data | `earthscope-geophysical-data` | `us-east-2` | none (8 networks) |
+| EarthScope restricted | `earthscope-mseed-v2-…-s3alias` access point | `us-east-2` | EarthScope SDK, role `s3-miniseed-v2`, credentials scoped per network |
 | SCEDC | `scedc-pds` | `us-west-2` | none |
 | NCEDC | `ncedc-pds` | `us-west-2` | none |
 | GeoNet | `geonet-open-data` | `ap-southeast-2` | none |
@@ -65,7 +73,8 @@ Notes:
 
 - SCEDC, NCEDC and GeoNet are per-channel archives, so you should pass `channel=...`.
 - GeoNet channels always carry a numeric location code (`10`, `20`, ...), so `location=` is required there — a blank location raises rather than silently missing data.
-- EarthScope stores station-day miniSEED objects and currently requires authenticated access through `earthscope-sdk`.
+- EarthScope stores station-day miniSEED objects (every channel of a station in one file); `get_numpy()` filters to the requested channel after parse.
+- The eight EarthScope Open Data networks need no credentials at all. Every other EarthScope network needs `earthscope-sdk>=1.8` and the `s3-miniseed-v2` role; credentials are scoped per network, and per network-year for temporary FDSN codes (digit/X/Y/Z prefixes). The legacy `s3-miniseed` role is retired.
 
 ### 2. FDSN second
 
@@ -238,17 +247,37 @@ bundle = SeisfetchClient(backend="s3_open").get_numpy(
 )
 ```
 
-### EarthScope S3 (authenticated)
+### Open S3: EarthScope Open Data
 
-Requires `earthscope-sdk` and an EarthScope account that has been granted the
-`s3-miniseed` role. See [EarthScope Credentials](#earthscope-credentials).
+`AK`, `II`, `IU`, `N4`, `PB`, `TA`, `UU` and `UW` are served anonymously from
+`earthscope-geophysical-data`. One object holds every channel of a
+station-day, so ask for the channel you want and the rest is dropped after
+parse:
+
+```python
+bundle = SeisfetchClient(backend="s3_open").get_numpy(
+    "IU",
+    "ANMO",
+    location="00",
+    channel="BHZ",
+    starttime="2024-01-15T00:00:00",
+    endtime="2024-01-15T00:01:00",
+)
+```
+
+### EarthScope S3 (restricted networks, authenticated)
+
+Every other EarthScope network needs `earthscope-sdk>=1.8` and an account with
+the `s3-miniseed-v2` role. See [EarthScope Credentials](#earthscope-credentials).
+`s3_auth` still reads the Open Data networks anonymously, so one client covers
+both tiers:
 
 ```python
 client = SeisfetchClient(backend="s3_auth")
 
 bundle = client.get_numpy(
-    "IU",
-    "ANMO",
+    "US",
+    "NEW",
     location="00",
     channel="BHZ",
     starttime="2024-01-15T00:00:00",
@@ -367,7 +396,7 @@ Adds:
 
 ### Add authenticated EarthScope S3
 
-Use this if you need EarthScope archive access:
+Use this for EarthScope networks outside the Open Data set:
 
 ```bash
 pip install "seisfetch[auth]"
@@ -418,7 +447,7 @@ pip install "seisfetch[obspy]"
 | S3 open data -> numpy only | `pip install seisfetch` |
 | Metadata table / metadata.csv export | `pip install "seisfetch[pandas]"` |
 | Archive-first + FDSN fallback | `pip install "seisfetch[fdsn]"` |
-| EarthScope + SCEDC + NCEDC | `pip install "seisfetch[auth]"` and `pip install earthscope-cli` |
+| EarthScope networks outside Open Data | `pip install "seisfetch[auth]"` and `pip install earthscope-cli` |
 | xarray / ML / Earth2Studio-style workflows | `pip install "seisfetch[xarray]"` |
 | zarr persistence | `pip install "seisfetch[zarr]"` |
 | ObsPy interop | `pip install "seisfetch[obspy]"` |
@@ -458,13 +487,21 @@ The notebook environment is the intended Jupyter environment for this repo.
 
 ## EarthScope Credentials
 
-EarthScope has **two access tiers**:
+EarthScope has **three access tiers**:
 
-1. **FDSN web service** (`backend="fdsn", providers="EARTHSCOPE"`) — available
-   to any logged-in account. No special role required.
-2. **Direct S3** (`backend="s3_auth"`) — requires the `s3-miniseed` IAM role to
-   be granted on your account. This is faster and cheaper when you are running
-   in `us-east-2`.
+1. **Open Data S3** (`backend="s3_open"`) — anonymous, no account. Only the
+   networks `AK`, `II`, `IU`, `N4`, `PB`, `TA`, `UU`, `UW`
+   (`seisfetch.EARTHSCOPE_OPEN_NETWORKS`, verified against the live bucket
+   listing on 2026-09-09).
+2. **FDSN web service** (`backend="fdsn", providers="EARTHSCOPE"`) — any
+   logged-in account, any network. No S3 role required.
+3. **Restricted S3** (`backend="s3_auth"`) — every network outside the Open
+   Data set, from the `earthscope-mseed-v2` access point. Needs
+   `earthscope-sdk>=1.8` and the `s3-miniseed-v2` role. Credentials are
+   scoped per network, and per network-year for temporary FDSN codes;
+   `seisfetch` exchanges one credential per scope and remembers EarthScope's
+   refusals, so a denied network is asked about once rather than once per
+   day. Fastest and cheapest from `us-east-2`.
 
 ### Setup
 
@@ -474,22 +511,14 @@ pip install earthscope-cli
 es login
 ```
 
-The `[auth]` extra already installs `earthscope-sdk`, so there is no separate SDK install step.
+The `[auth]` extra installs `earthscope-sdk>=1.8`. Earlier SDKs cannot scope a
+credential to a network, and `S3AuthClient` refuses to start on them.
 
 ### Verify (CLI)
 
 ```bash
-# 1. Confirm you are logged in
 es user get-profile                # prints your name, email, institution
-
-# 2. Confirm direct-S3 role is granted (only needed for backend="s3_auth")
-es user get-aws-credentials        # prints temporary AWS keys, or an error
 ```
-
-A response of `"You are not allowed to assume role 's3-miniseed'"` or
-`UnauthorizedError` means your account is logged in but **direct S3 is not
-enabled yet**. Use `backend="fdsn", providers="EARTHSCOPE"` in the meantime
-and email `data-help@earthscope.org` to request the `s3-miniseed` role.
 
 ### Verify (Python)
 
@@ -499,11 +528,29 @@ from earthscope_sdk import EarthScopeClient
 with EarthScopeClient() as client:
     print(client.user.get_profile())
     try:
-        creds = client.user.get_aws_credentials()
-        print("S3 role granted:", creds.aws_access_key_id[:8])
+        creds = client.user.get_aws_credentials(
+            role="s3-miniseed-v2", network="FDSN:US"
+        )
+        print("S3 access to US granted:", creds.aws_access_key_id[:8])
     except Exception as exc:
-        print("S3 role NOT granted:", exc)
+        print("S3 access NOT granted:", type(exc).__name__, exc)
 ```
+
+What the errors mean:
+
+- `"You are not allowed to assume role 's3-miniseed'"` — the legacy v1 role,
+  now retired. Upgrade `earthscope-sdk` and `seisfetch`; only v2 is used here.
+- `UnauthorizedError` (HTTP 403) on a scope — your account may not read that
+  network (or that network-year). Not retried. Use
+  `backend="fdsn", providers="EARTHSCOPE"` in the meantime and email
+  `data-help@earthscope.org`.
+- `UnauthenticatedError` (HTTP 401) — the login token was rejected; run `es login`.
+- HTTP 400 on a temporary code — the scope needs a year. `seisfetch` always
+  sends one, so this points at a code EarthScope does not recognise.
+- HTTP 404 — the archive has no such network-year; treated as no data.
+
+`seisfetch` raises these as `seisfetch.CredentialError` (a `FetchError`) with
+`.scope` and `.status` set.
 
 ### Headless / CI
 
@@ -511,6 +558,9 @@ with EarthScopeClient() as client:
 es user get-refresh-token
 export ES_OAUTH2__REFRESH_TOKEN="<your-refresh-token>"
 ```
+
+Override the access point or the role with `EARTHSCOPE_S3_ACCESS_POINT` and
+`EARTHSCOPE_ROLE` if EarthScope issues new ones.
 
 ## Architecture
 
@@ -526,10 +576,13 @@ SeisfetchClient
 |  +- SCEDC open bucket
 |  +- NCEDC open bucket
 |  +- GeoNet open bucket
+|  +- EarthScope Open Data bucket (AK II IU N4 PB TA UU UW)
 |  +- auto-routing by network code
 |
 +- backend="s3_auth"
-|  +- EarthScope S3 via earthscope-sdk credentials
+|  +- EarthScope restricted access point via earthscope-sdk
+|  |  (s3-miniseed-v2, credentials scoped per network / network-year)
+|  +- Open Data networks read anonymously
 |
 +- backend="fdsn"
 |  +- single-provider HTTP client
@@ -565,7 +618,9 @@ miniSEED -> numpy -> xarray / sparse dataframe -> Earth2Studio adapter
 
 `SeisfetchLiveSource` has the shape every other Earth2Studio source (GFS,
 ERA5, ...) has: you call it with timestamps and it fetches, auto-routing per
-network across all four archives and caching day bundles in memory.
+network across all four archives and caching day bundles in memory. It reads
+anonymously, so EarthScope networks outside the Open Data set are not
+reachable from it.
 
 ```python
 from datetime import datetime
@@ -634,12 +689,13 @@ not abort the run.
 ### Archive-first with FDSN fallback
 
 ```python
-from seisfetch import SeisfetchClient, route_network
+from seisfetch import SeisfetchClient, earthscope_tier, route_network
 
 def get_archive_first(net, sta, *, starttime, endtime, location="*", channel="*",
                        fallback="GEOFON"):
     dc = route_network(net)
-    primary = "s3_open" if dc in {"scedc", "ncedc"} else "s3_auth"
+    restricted = dc == "earthscope" and earthscope_tier(net) == "restricted"
+    primary = "s3_auth" if restricted else "s3_open"
     try:
         return SeisfetchClient(backend=primary).get_numpy(
             net, sta, location=location, channel=channel,
@@ -688,11 +744,15 @@ seisfetch download CI ABL -s 2024-01-15 -e 2024-01-15T01:00:00 -c BHZ -o data.ms
 seisfetch numpy    CI SDD -s 2024-06-01 -c BHZ -o data.npz
 seisfetch zarr     CI ABL -s 2024-01-15 -c BHZ -o data.zarr
 
-# EarthScope (requires `es login` and the s3-miniseed role)
-seisfetch download IU ANMO -s 2024-01-15 -e 2024-01-15T01:00:00 -c BHZ --backend s3_auth -o anmo.mseed
+# EarthScope Open Data (no auth): AK II IU N4 PB TA UU UW
+seisfetch download IU ANMO -s 2024-01-15 -e 2024-01-15T01:00:00 -c BHZ -o anmo.mseed
 
-# Routing and provider info
+# EarthScope restricted networks (requires `es login` and the s3-miniseed-v2 role)
+seisfetch download US NEW -s 2024-01-15 -e 2024-01-15T01:00:00 -c BHZ --backend s3_auth -o new.mseed
+
+# Routing and provider info (--route names the EarthScope tier)
 seisfetch info --route CI
+seisfetch info --route US
 seisfetch info --providers
 
 # Bulk
@@ -732,7 +792,7 @@ pixi run test-int
 | `xarray` | optional `[xarray]` | labeled dataset output |
 | `zarr` | optional `[zarr]` | persistent chunked storage |
 | `obspy` | optional `[obspy]` | ObsPy interop and alternative FDSN backend |
-| `earthscope-sdk` | optional `[auth]` | EarthScope S3 credentials |
+| `earthscope-sdk` (>=1.8) | optional `[auth]` | EarthScope restricted-tier credentials |
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and licenses.
 

@@ -42,15 +42,52 @@ class NoDataError(SeisfetchError):
     """Every requested object was cleanly not-found (no transport errors).
 
     Pass ``missing_ok=True`` to the fetch call to get ``b""`` instead.
+    ``hint`` names a reason the caller can act on when the absence is about
+    access tier rather than the archive (e.g. a network that is not in
+    EarthScope's Open Data Program asked for on the open bucket).
     """
 
-    def __init__(self, attempted):
+    def __init__(self, attempted, hint=None):
         self.attempted = list(attempted)
+        self.hint = hint
         shown = ", ".join(self.attempted[:4])
         more = f" (+{len(self.attempted) - 4} more)" if len(self.attempted) > 4 else ""
-        super().__init__(
+        msg = (
             f"no data: none of {len(self.attempted)} requested object(s) exist "
             f"({shown}{more}). Pass missing_ok=True to receive empty bytes instead."
+        )
+        if hint:
+            msg += f" {hint}"
+        super().__init__(msg)
+
+
+class CredentialError(FetchError):
+    """EarthScope refused to issue a credential for a scope.
+
+    A verdict on the request, not congestion: HTTP 400 (malformed scope),
+    401 (login token rejected) or 403 (the account may not read this
+    network or network-year). Never retried, and remembered by
+    :class:`seisfetch.s3.S3AuthClient` for the life of the client so the
+    same question is asked once, not once per day.
+
+    Attributes
+    ----------
+    scope : dict
+        The credential request that was refused, e.g.
+        ``{"network": "FDSN:ZI", "year": 2019}``.
+    status : int
+        HTTP status EarthScope answered with.
+    message : str
+        What it means and what to do about it.
+    """
+
+    def __init__(self, scope, status, message, fetched=0, missing=None):
+        self.scope = dict(scope)
+        self.status = int(status)
+        self.message = message
+        label = ", ".join(f"{k}={v}" for k, v in sorted(self.scope.items()))
+        super().__init__(
+            [(label, f"HTTP {self.status}", message)], fetched=fetched, missing=missing
         )
 
 

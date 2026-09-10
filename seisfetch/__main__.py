@@ -47,7 +47,7 @@ def _add_common_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--datacenter",
         default=None,
-        choices=["earthscope", "scedc", "ncedc"],
+        choices=["earthscope", "scedc", "ncedc", "geonet"],
         help="Force S3 datacenter (default: auto-route)",
     )
     parser.add_argument(
@@ -224,15 +224,26 @@ def cmd_info(args):
         return
 
     if args.info_route:
-        from seisfetch.s3 import route_network
+        from seisfetch.s3 import DATACENTERS, earthscope_tier, route_network
+        from seisfetch.utils import AUTH_ACCESS_POINT, AUTH_REGION, AUTH_ROLE
 
         net = args.info_route.upper()
         dc = route_network(net)
-        from seisfetch.s3 import DATACENTERS
-
         bucket = DATACENTERS[dc]["bucket"]
         region = DATACENTERS[dc]["region"]
-        print(f"{net} → {dc}  (s3://{bucket}, {region})")
+        if dc != "earthscope":
+            print(f"{net} → {dc}  (s3://{bucket}, {region})  [anonymous: s3_open]")
+        elif earthscope_tier(net) == "open":
+            print(
+                f"{net} → {dc}  (s3://{bucket}, {region})  "
+                "[EarthScope Open Data, anonymous: s3_open]"
+            )
+        else:
+            print(
+                f"{net} → {dc}  (s3://{AUTH_ACCESS_POINT}, {AUTH_REGION})  "
+                f"[EarthScope restricted: s3_auth, role {AUTH_ROLE}, "
+                "credentials scoped per network]"
+            )
         return
 
     print("Use --providers, --networks, --stations, or --route. See --help.")
@@ -338,7 +349,9 @@ def cmd_bulk(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="seisfetch",
-        description="Fast seismic miniSEED from EarthScope, SCEDC, NCEDC & FDSN.",
+        description=(
+            "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, GeoNet & FDSN."
+        ),
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable debug logging"
@@ -378,7 +391,7 @@ def main():
         "--datacenter",
         dest="info_datacenter",
         default=None,
-        choices=["earthscope", "scedc", "ncedc"],
+        choices=["earthscope", "scedc", "ncedc", "geonet"],
         help="Which datacenter to query (default: earthscope)",
     )
     p.add_argument(
@@ -425,7 +438,9 @@ Example:
         "-b", "--backend", default="s3_open", choices=["s3_open", "s3_auth", "fdsn"]
     )
     p.add_argument(
-        "--datacenter", default=None, choices=["earthscope", "scedc", "ncedc"]
+        "--datacenter",
+        default=None,
+        choices=["earthscope", "scedc", "ncedc", "geonet"],
     )
     p.add_argument(
         "--providers", default=None, help="FDSN provider(s), comma-separated"

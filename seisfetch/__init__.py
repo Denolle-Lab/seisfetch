@@ -5,7 +5,9 @@ and 37+ FDSN servers.
 Core deps: numpy + boto3 + pymseed.  No ObsPy required.
 
 S3 archives:
-  EarthScope  s3://earthscope-geophysical-data  (us-east-2, auth via earthscope-sdk)
+  EarthScope  s3://earthscope-geophysical-data  (us-east-2; anonymous for the
+              Open Data networks AK, II, IU, N4, PB, TA, UU, UW; every other
+              network via the earthscope-mseed-v2 access point + earthscope-sdk)
   SCEDC       s3://scedc-pds                    (us-west-2)
   NCEDC       s3://ncedc-pds                    (us-west-2)
   GeoNet      s3://geonet-open-data             (ap-southeast-2)
@@ -54,10 +56,14 @@ _LAZY = {
     "S3AuthClient": "seisfetch.s3",
     "SeisfetchError": "seisfetch.exceptions",
     "FetchError": "seisfetch.exceptions",
+    "CredentialError": "seisfetch.exceptions",
     "NoDataError": "seisfetch.exceptions",
     "FDSNError": "seisfetch.exceptions",
     "S3OpenClient": "seisfetch.s3",
     "route_network": "seisfetch.s3",
+    "earthscope_tier": "seisfetch.s3",
+    "is_earthscope_open": "seisfetch.utils",
+    "EARTHSCOPE_OPEN_NETWORKS": "seisfetch.utils",
 }
 
 
@@ -96,7 +102,7 @@ try:
 
     __version__ = _pkg_version("seisfetch")
 except Exception:  # not installed (e.g. vendored copy)
-    __version__ = "0.4.0"
+    __version__ = "0.5.0"
 __all__ = [
     "SeisfetchClient",
     "S3OpenClient",
@@ -119,6 +125,10 @@ __all__ = [
     "to_zarr",
     "write_metadata_csv",
     "route_network",
+    "earthscope_tier",
+    "is_earthscope_open",
+    "EARTHSCOPE_OPEN_NETWORKS",
+    "CredentialError",
     "BulkRequest",
     "BulkResult",
     "BulkSummary",

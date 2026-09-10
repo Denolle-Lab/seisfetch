@@ -4,6 +4,62 @@ All notable changes to seisfetch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org).
 
+## 0.5.0 — 2026-09-10
+
+EarthScope now serves eight networks from its sponsored Open Data bucket with
+no credentials, and its credentialed tier has moved to a v2 access point that
+issues per-network credentials. seisfetch follows the archive as QuakeScope
+documents it (`sb_catalog/src/s3_helper.py`), verified against the live
+bucket on 2026-09-09.
+
+### Added
+
+- **EarthScope Open Data tier.** `AK`, `II`, `IU`, `N4`, `PB`, `TA`, `UU`
+  and `UW` are read anonymously from `earthscope-geophysical-data` by
+  `s3_open`, the same path SCEDC, NCEDC and GeoNet use. The code path
+  existed; what was missing was knowing which networks it serves.
+  `EARTHSCOPE_OPEN_NETWORKS`, `is_earthscope_open()` and `earthscope_tier()`
+  expose the tier, and `seisfetch info --route NET` prints it.
+- `CredentialError` (a `FetchError` with `.scope` and `.status`): EarthScope
+  refused to issue a credential for a scope.
+- `--datacenter geonet` on the CLI. GeoNet was routable but not forceable.
+- `PG` routes to NCEDC, as in QuakeScope's mapping.
+
+### Changed
+
+- `S3AuthClient` rewritten for the restricted tier as it now exists:
+  - reads the `earthscope-mseed-v2` access point on the `s3-miniseed-v2`
+    role. The v1 alias and `s3-miniseed` role are retired and answer
+    "You are not allowed to assume role" for every account, which read like
+    a permissions problem rather than a renamed role;
+  - scopes every credential to a network, and to a network-year for
+    temporary FDSN codes (digit/X/Y/Z prefixes). An unscoped v2 credential
+    can LIST but not GET, so the old unscoped exchange looked like a missing
+    role at the first read;
+  - one boto3 client per scope, pinned to `us-east-2`, renewed from the
+    SDK's TTL cache instead of rebuilding the SDK client on a 45-minute
+    clock. `SecretStr` fields are unwrapped: SDK >= 1.4.1 returns them, and
+    boto3 signs with the literal `**********` otherwise;
+  - resolves each station-day with one LIST before its GET. Restricted
+    objects carry a version suffix (`ANMO.IU.2024.015#2`) that a GET on the
+    bare name never finds; the highest version wins;
+  - remembers EarthScope's verdicts (400/401/403/404) per scope for the life
+    of the client. A year-long request on a denied network costs one
+    exchange, not 366 - the retry storm EarthScope reported on QuakeScope's
+    fleet on 2026-09-04;
+  - reads Open Data networks anonymously (`prefer_open=True`), so one client
+    covers both tiers;
+  - same failure contract as `S3OpenClient` (`missing_ok`, `on_error`).
+    Absent network-years are `missing`, not errors.
+- The `auth` extra requires `earthscope-sdk>=1.8`, the first release that
+  takes `network`/`year` on a credential request; `S3AuthClient` refuses to
+  start on an older SDK rather than failing at the first GET.
+- `S3OpenClient` names the tier in its errors. No data for a network outside
+  Open Data on the open bucket now says so and points at `s3_auth`, instead
+  of reporting a missing object; the AccessDenied hint lists the open networks.
+- `get_stations()` routes `NZ` to GeoNet's FDSN service.
+- README, quickstart notebook and CLI help describe the two EarthScope tiers.
+
 ## 0.4.1 — 2026-08-17
 
 The release NoisePy's obspy-free data path depends on: it makes seisfetch

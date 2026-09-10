@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seisfetch"
-version = "0.4.1"
-description = "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, and 30+ FDSN servers. Core: numpy + boto3 + pymseed. No ObsPy required."
+version = "0.5.0"
+description = "Fast seismic miniSEED from EarthScope, SCEDC, NCEDC, GeoNet, and 30+ FDSN servers. Core: numpy + boto3 + pymseed. No ObsPy required."
 readme = "README.md"
 # Compound: the package is MIT except seisfetch/contrib/obspy_ports.py,
 # which contains ObsPy-derived translations and is LGPL-3.0-only
@@ -14,7 +14,7 @@ requires-python = ">=3.9"
 authors = [
     { name = "UW ESS Denolle Group" },
 ]
-keywords = ["seismology", "earthscope", "scedc", "ncedc", "miniseed", "fdsn", "s3", "numpy", "xarray", "zarr"]
+keywords = ["seismology", "earthscope", "scedc", "ncedc", "geonet", "miniseed", "fdsn", "s3", "numpy", "xarray", "zarr"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -43,7 +43,11 @@ fdsn = ["httpx>=0.25"]
 pandas = ["pandas>=2.0"]
 xarray = ["xarray>=2023.1"]
 zarr = ["xarray>=2023.1", "zarr>=2.14"]
-auth = ["earthscope-sdk>=1.0"]
+# >=1.8: first release whose get_aws_credentials takes a role plus
+# network/year query params. EarthScope's s3-miniseed-v2 role issues
+# per-network credentials and an unscoped one can LIST but not GET; 1.7
+# accepts `role` only and S3AuthClient refuses to start on it.
+auth = ["earthscope-sdk>=1.8"]
 earth2 = ["earth2studio>=0.13", "xarray>=2023.1"]
 notebooks = [
     "jupyter>=1.0",

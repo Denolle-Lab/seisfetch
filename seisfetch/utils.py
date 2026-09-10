@@ -7,15 +7,59 @@ Zero external dependencies — stdlib only.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
+# --------------------------------------------------------------------------- #
+#  EarthScope: two tiers, one station-day layout
+# --------------------------------------------------------------------------- #
+
+#: EarthScope's sponsored Open Data bucket (docs.earthscope.org/sponsored-open-data):
+#: anonymous, no role, no credential exchange. Same region as the restricted tier.
 OPEN_BUCKET = "earthscope-geophysical-data"
 OPEN_REGION = "us-east-2"
-AUTH_ACCESS_POINT = "earthscope-mseed-res-na3mtd4fq5kz7pntcyr1uh46use2a--ol-s3"
+
+#: Networks the Open Data bucket serves. Verified against the live bucket
+#: listing and an anonymous GET on 2026-09-09; matches QuakeScope's
+#: ``EARTHSCOPE_OPEN_DATA_NETWORKS``. The set is EarthScope's to change, so
+#: routing consults :func:`is_earthscope_open` rather than the literal.
+EARTHSCOPE_OPEN_NETWORKS = frozenset({"AK", "II", "IU", "N4", "PB", "TA", "UU", "UW"})
+
+#: Every other network sits behind a credentialed S3 access point. The v2
+#: alias is published in EarthScope's S3 direct-access tutorial
+#: (docs.earthscope.org/sdk/s3-direct-access-tutorial); override it with
+#: ``EARTHSCOPE_S3_ACCESS_POINT`` if EarthScope issues a different one. The
+#: v1 alias (``earthscope-mseed-res-...--ol-s3``) is retired.
+AUTH_ACCESS_POINT = os.environ.get(
+    "EARTHSCOPE_S3_ACCESS_POINT",
+    "earthscope-mseed-v2-4fdodyzpsz8u8uyi3pa9qsw9oid1suse2a-s3alias",
+)
+#: Access-point requests are only valid when signed for this region.
+AUTH_REGION = "us-east-2"
 AUTH_PREFIX = "miniseed/"
+#: The v1 ``s3-miniseed`` role is retired: it answers "You are not allowed to
+#: assume role 's3-miniseed'" even for accounts in good standing, which reads
+#: like a permissions problem rather than a renamed role.
+AUTH_ROLE = os.environ.get("EARTHSCOPE_ROLE", "s3-miniseed-v2")
+
+#: FDSN reserves codes beginning with a digit or X/Y/Z for temporary
+#: deployments and reuses them across experiments, so EarthScope scopes a
+#: credential for one by year as well as by network.
+TEMPORARY_NETWORK_PREFIXES = frozenset("0123456789XYZ")
+
+
+def is_earthscope_open(network: str) -> bool:
+    """True if EarthScope serves ``network`` from the anonymous Open Data bucket."""
+    return network.upper() in EARTHSCOPE_OPEN_NETWORKS
+
+
+def is_temporary_network(network: str) -> bool:
+    """True for FDSN temporary codes (digit or X/Y/Z prefix), which EarthScope
+    authorises per network-year rather than per network."""
+    return bool(network) and network[0].upper() in TEMPORARY_NETWORK_PREFIXES
 
 
 def s3_key(
