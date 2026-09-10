@@ -4,6 +4,17 @@ All notable changes to seisfetch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Fixed
+
+- `S3AuthClient.get_raw` collapsed every credential refusal in a request
+  into one `CredentialError` built from the first verdict, so a temporary
+  network denied across a year boundary reported only the first year. A
+  request whose refusals span several scopes now raises a `FetchError`
+  with one entry per distinct verdict; a single scope still raises
+  `CredentialError`. Raised by Copilot on PR #8.
+
 ## 0.5.0 — 2026-09-10
 
 EarthScope now serves eight networks from its sponsored Open Data bucket with
