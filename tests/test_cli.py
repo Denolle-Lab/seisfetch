@@ -55,9 +55,46 @@ class TestCLIInfo:
             main()
         out = capsys.readouterr().out
         assert "earthscope" in out
+        assert "Open Data" in out and "s3_open" in out
+
+    def test_route_restricted_earthscope_network(self, capsys):
+        with patch("sys.argv", ["ef", "info", "--route", "US"]):
+            main()
+        out = capsys.readouterr().out
+        assert "restricted" in out and "s3_auth" in out
+        assert "s3-miniseed-v2" in out
+
+    def test_route_nz(self, capsys):
+        with patch("sys.argv", ["ef", "info", "--route", "NZ"]):
+            main()
+        assert "geonet" in capsys.readouterr().out
 
 
 class TestCLIDownload:
+    @patch("seisfetch.client.SeisfetchClient.get_raw")
+    def test_download_accepts_geonet_datacenter(self, mock_get_raw, tmp_path):
+        mock_get_raw.return_value = b"\x00" * 10
+        outfile = str(tmp_path / "nz.mseed")
+        argv = [
+            "ef",
+            "download",
+            "NZ",
+            "WEL",
+            "-s",
+            "2022-01-02",
+            "-c",
+            "HHZ",
+            "-l",
+            "10",
+            "--datacenter",
+            "geonet",
+            "-o",
+            outfile,
+        ]
+        with patch("sys.argv", argv):
+            main()
+        assert Path(outfile).read_bytes() == b"\x00" * 10
+
     @patch("seisfetch.client.SeisfetchClient.get_raw")
     def test_download_writes_file(self, mock_get_raw, tmp_path):
         mock_get_raw.return_value = b"\x00" * 1000

@@ -45,8 +45,10 @@ pixi run -e notebooks lab              # open JupyterLab in the browser
 
 ## Notes
 
-- `01_quickstart.ipynb` uses anonymous SCEDC examples by default and includes
-  an EarthScope `s3_auth` example. The `[auth]` extra already installs `earthscope-sdk`.
-- EarthScope direct S3 access is not anonymous. Run `es login` and make sure
-  your account is enabled for S3 direct access before using `backend="s3_auth"`.
+- `01_quickstart.ipynb` uses anonymous SCEDC and EarthScope Open Data examples
+  by default and includes an EarthScope `s3_auth` example for a restricted
+  network. The `[auth]` extra installs `earthscope-sdk>=1.8`.
+- EarthScope's Open Data networks (`AK`, `II`, `IU`, `N4`, `PB`, `TA`, `UU`,
+  `UW`) are anonymous. Every other EarthScope network needs `es login` and the
+  `s3-miniseed-v2` role before `backend="s3_auth"` will read it.
 - Fastest to run from within AWS `us-east-2`; works from any internet-connected machine.

@@ -28,10 +28,16 @@ class SeisfetchClient:
       ``get_availability()`` → ObsPy Inventory (station metadata)
 
     Backends:
-      ``s3_open``    — anonymous S3 (SCEDC, NCEDC)
-      ``s3_auth``    — authenticated S3 (EarthScope, requires earthscope-sdk)
+      ``s3_open``    — anonymous S3: SCEDC, NCEDC, GeoNet, and EarthScope's
+                       Open Data networks (AK, II, IU, N4, PB, TA, UU, UW)
+      ``s3_auth``    — EarthScope's credentialed access point for every other
+                       EarthScope network (requires earthscope-sdk>=1.8 and
+                       the s3-miniseed-v2 role); reads Open Data anonymously
       ``fdsn``       — direct HTTP to any FDSN server (no ObsPy)
       ``obspy_fdsn`` — ObsPy's FDSN client (requires obspy, best for non-US servers)
+
+    ``seisfetch.earthscope_tier(net)`` says which of the two S3 backends an
+    EarthScope network needs.
     """
 
     def __init__(
@@ -244,7 +250,8 @@ class SeisfetchClient:
         Query the fdsnws-station service for matching channels.
 
         Auto-routes to the FDSN service co-located with each S3 archive:
-        ``CI`` → SCEDC, ``BK``/``NC`` → NCEDC, others → EARTHSCOPE.
+        ``CI`` → SCEDC, ``BK``/``NC`` → NCEDC, ``NZ`` → GEONET, others →
+        EARTHSCOPE.
         Override with ``provider``. Returns a list of dicts (one per channel)
         with keys ``Network``, ``Station``, ``Location``, ``Channel``,
         ``Latitude``, ``Longitude``, ``Elevation``, ``StartTime``, ``EndTime``,
@@ -260,6 +267,7 @@ class SeisfetchClient:
             provider = {
                 "scedc": "SCEDC",
                 "ncedc": "NCEDC",
+                "geonet": "GEONET",
                 "earthscope": "EARTHSCOPE",
             }.get(dc, "EARTHSCOPE")
 
