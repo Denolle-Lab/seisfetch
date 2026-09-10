@@ -1111,11 +1111,29 @@ class S3AuthClient:
         if failures:
             if on_error == "raise":
                 if verdicts and len(verdicts) == len(failures):
-                    v = verdicts[0]
-                    raise CredentialError(
-                        v.scope,
-                        v.status,
-                        v.message,
+                    # every failure is a credential verdict. One scope (the
+                    # common case: a permanent network, however many days)
+                    # raises as that CredentialError. A request spanning
+                    # several scopes - a temporary network across a year
+                    # boundary - raises one FetchError entry per distinct
+                    # verdict, so no denied scope hides behind the first.
+                    unique: dict[tuple, CredentialError] = {}
+                    for v in verdicts:
+                        unique.setdefault(
+                            (json.dumps(v.scope, sort_keys=True), v.status, v.message),
+                            v,
+                        )
+                    if len(unique) == 1:
+                        v = verdicts[0]
+                        raise CredentialError(
+                            v.scope,
+                            v.status,
+                            v.message,
+                            fetched=len(chunks),
+                            missing=missing,
+                        )
+                    raise FetchError(
+                        [v.failures[0] for v in unique.values()],
                         fetched=len(chunks),
                         missing=missing,
                     )

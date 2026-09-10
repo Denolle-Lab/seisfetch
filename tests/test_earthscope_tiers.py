@@ -356,6 +356,23 @@ class TestS3AuthClientRestricted:
             c.get_raw("LH", "HDSE", "2024-06-01")
         assert len(es.calls) == 1
 
+    def test_denials_on_several_scopes_are_all_reported(self, fake_sdk):
+        """A temporary network across a year boundary is two scopes; two
+        refusals must surface as two entries, not the first one alone."""
+        from seisfetch.exceptions import FetchError
+
+        _restricted_bucket()
+        es = FakeES(fail=fake_sdk.UnauthorizedError("no access"))
+        c = S3AuthClient(max_workers=2, _es_client=es)
+        with pytest.raises(FetchError) as exc:
+            c.get_raw("ZI", "STA", "2019-12-30", "2020-01-03")
+        assert not isinstance(exc.value, CredentialError)
+        labels = sorted(label for label, _, _ in exc.value.failures)
+        assert labels == ["network=FDSN:ZI, year=2019", "network=FDSN:ZI, year=2020"]
+        assert all(code == "HTTP 403" for _, code, _ in exc.value.failures)
+        # one exchange per scope, not per day
+        assert len(es.calls) == 2
+
     def test_401_stops_every_scope(self, fake_sdk):
         _restricted_bucket()
         es = FakeES(fail=fake_sdk.UnauthenticatedError("bad token"))
