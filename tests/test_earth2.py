@@ -74,9 +74,7 @@ class TestSeismicDataSource:
         src = SeismicDataSource(bundle)
         var_names = list(src._var_names)
         now = datetime(2024, 1, 15)
-        result = asyncio.get_event_loop().run_until_complete(
-            src.fetch(now, var_names[0])
-        )
+        result = asyncio.run(src.fetch(now, var_names[0]))
         assert isinstance(result, xr.DataArray)
 
     def test_empty_bundle(self):
@@ -158,9 +156,7 @@ class TestSeismicDataFrameSource:
         ds = bundle_to_xarray(bundle)
         var_names = sorted(ds.data_vars)
         src = SeismicDataFrameSource(bundle)
-        df = asyncio.get_event_loop().run_until_complete(
-            src.fetch(datetime(2024, 1, 15), var_names)
-        )
+        df = asyncio.run(src.fetch(datetime(2024, 1, 15), var_names))
         assert isinstance(df, pd.DataFrame)
 
 

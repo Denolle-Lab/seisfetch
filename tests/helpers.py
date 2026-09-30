@@ -18,10 +18,10 @@ def make_mseed(
         data_samples=data,
         sample_type="i",
         sample_rate=100.0,
-        start_time=timestr2nstime("2024-01-15T00:00:00Z"),
+        starttime=timestr2nstime("2024-01-15T00:00:00Z"),
     )
     with tempfile.NamedTemporaryFile(suffix=".mseed", delete=True) as f:
-        tl.to_file(f.name, format_version=2, max_reclen=4096)
+        tl.to_file(f.name, format_version=2, max_record_length=4096)
         f.seek(0)
         return f.read()
 
@@ -37,10 +37,10 @@ def make_multichan_mseed() -> bytes:
             data_samples=data,
             sample_type="i",
             sample_rate=100.0,
-            start_time=timestr2nstime("2024-01-15T00:00:00Z"),
+            starttime=timestr2nstime("2024-01-15T00:00:00Z"),
         )
     with tempfile.NamedTemporaryFile(suffix=".mseed", delete=True) as f:
-        tl.to_file(f.name, format_version=2, max_reclen=4096)
+        tl.to_file(f.name, format_version=2, max_record_length=4096)
         f.seek(0)
         return f.read()
 
@@ -67,10 +67,10 @@ def make_gapped_mseed(
             data_samples=data,
             sample_type="i",
             sample_rate=sample_rate,
-            start_time=start,
+            starttime=start,
         )
     with tempfile.NamedTemporaryFile(suffix=".mseed", delete=True) as f:
-        tl.to_file(f.name, format_version=2, max_reclen=4096)
+        tl.to_file(f.name, format_version=2, max_record_length=4096)
         f.seek(0)
         return f.read()
 
