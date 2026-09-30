@@ -6,6 +6,12 @@ All notable changes to seisfetch are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- pymseed is now pinned `>=1.0.1,<2`. The library code needed no changes;
+  the test fixtures moved to pymseed 1.0's renamed keywords
+  (`add_data(starttime=)`, `to_file(max_record_length=)`).
+
 ### Fixed
 
 - `S3AuthClient.get_raw` collapsed every credential refusal in a request

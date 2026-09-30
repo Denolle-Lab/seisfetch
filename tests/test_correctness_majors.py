@@ -106,10 +106,10 @@ class TestOutOfOrderFallbackParity:
                 data_samples=list(values),
                 sample_type="i",
                 sample_rate=1.0,
-                start_time=timestr2nstime(t0),
+                starttime=timestr2nstime(t0),
             )
             with tempfile.NamedTemporaryFile(suffix=".ms") as f:
-                tl.to_file(f.name, format_version=2, max_reclen=512)
+                tl.to_file(f.name, format_version=2, max_record_length=512)
                 f.seek(0)
                 return f.read()
 

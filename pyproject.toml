@@ -33,7 +33,7 @@ dependencies = [
     # upper bound: parse_mseed uses MS3TraceList/recordlist plus a guarded
     # private-API sid fallback; verified against 0.6-0.9.3 (parse suite +
     # private-API probe). Raise only with tests.
-    "pymseed>=0.6,<0.10",
+    "pymseed>=1.0.1,<2",
 ]
 
 [project.optional-dependencies]
